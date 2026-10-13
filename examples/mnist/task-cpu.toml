@@ -1,0 +1,19 @@
+# Reverse direction (Windows → Mac): same mechanism, CPU/MPS-free torch run.
+[task]
+project = "mnist-demo"
+name = "train-cpu"
+command = ["python3", "-u", "train.py", "--epochs", "1", "--out", "out/", "--device", "cpu"]
+
+[task.inputs]
+files = ["train.py", "dataset.zip"]
+
+[task.env]
+python = ">=3.10"
+packages = { torch = ">=2.0" }
+
+[task.outputs]
+include = ["out/model.pt", "out/metrics.json"]
+
+[task.policy]
+on_interrupt = "restart"
+timeout_minutes = 120

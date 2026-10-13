@@ -1,0 +1,53 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: vet
+        run: go vet ./...
+      - name: vet (windows target)
+        if: runner.os == 'macOS'
+        run: GOOS=windows GOARCH=amd64 go vet ./...
+      - name: test (race, macOS)
+        if: runner.os == 'macOS'
+        run: go test -race -count=1 -timeout 20m ./...
+      - name: test (Windows)
+        if: runner.os == 'Windows'
+        run: go test -count=1 -timeout 20m ./...
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build all targets with CGO disabled
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -e
+          for t in darwin/arm64 darwin/amd64 windows/amd64; do
+            GOOS=${t%/*} GOARCH=${t#*/} go build -trimpath -o dist/kith-${t%/*}-${t#*/}$( [ ${t%/*} = windows ] && echo .exe ) ./cmd/kith
+          done
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kith-binaries
+          path: dist/

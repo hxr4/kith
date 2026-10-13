@@ -1,0 +1,4 @@
+dist/
+*.kithpart
+examples/mnist/dataset.zip
+examples/mnist/out/

@@ -1,0 +1,26 @@
+# Mac → Windows GPU demo. On the executor, `python` must resolve (via PATH of
+# the kith daemon) to an interpreter with CUDA-enabled torch.
+[task]
+project = "mnist-demo"
+name = "train"
+command = ["python", "-u", "train.py", "--epochs", "5", "--out", "out/"]
+
+[task.inputs]
+files = ["train.py", "dataset.zip"]
+max_total_gb = 25
+
+[task.env]
+python = ">=3.10"
+packages = { torch = ">=2.3+cu121" }
+gpu = { vram_gb = 4, required = true }
+probe = "python -c \"import torch; assert torch.cuda.is_available()\""
+
+[task.outputs]
+include = ["out/model.pt", "out/metrics.json"]
+copy_back = true
+retain_cap_gb = 10
+
+[task.policy]
+on_interrupt = "resume-if-checkpoint"
+checkpoint = { pattern = "out/checkpoint*.pt" }
+timeout_minutes = 120

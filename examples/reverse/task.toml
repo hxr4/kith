@@ -1,0 +1,19 @@
+# Windows → Mac: same mechanism in reverse (no GPU, stdlib-only Python).
+[task]
+project = "reverse-demo"
+name = "report"
+command = ["python3", "-u", "report.py"]
+
+[task.inputs]
+files = ["report.py", "data.bin"]
+
+[task.env]
+os = "macos"
+python = ">=3.10"
+
+[task.outputs]
+include = ["out/report.json", "out/digest.bin"]
+
+[task.policy]
+on_interrupt = "restart"
+timeout_minutes = 10
