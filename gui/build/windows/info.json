@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "1.0.0"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "1.0.0",
+			"CompanyName": "Kith",
+			"FileDescription": "Delegate work between your paired machines",
+			"LegalCopyright": "(c) 2026 Kith",
+			"ProductName": "Kith",
+			"Comments": "Local-first task fabric for AI agents"
+		}
+	}
+}

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <link rel="icon" type="image/png" href="/icon.png"/>
+    <title>Kith</title>
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar">
+        <div class="titlebar-pad"></div>
+        <div class="brand">
+            <img src="/icon.png" alt="" class="brand-icon"/>
+            <div>
+                <div class="brand-name">Kith</div>
+                <div class="brand-sub" id="brand-sub">connecting…</div>
+            </div>
+        </div>
+        <nav class="nav">
+            <a href="#/" data-route="overview">Overview</a>
+            <a href="#/tasks" data-route="tasks">Tasks <span class="count" id="nav-active"></span></a>
+            <a href="#/approvals" data-route="approvals">Approvals <span class="badge" id="nav-pending"></span></a>
+            <a href="#/pair" data-route="pair">Pair a machine</a>
+            <a href="#/settings" data-route="settings">Settings</a>
+        </nav>
+        <div class="sidebar-foot" id="sidebar-foot"></div>
+    </aside>
+    <main class="main">
+        <div class="topbar"></div>
+        <div class="content" id="view"></div>
+    </main>
+</div>
+<div class="toasts" id="toasts"></div>
+<div class="modal-backdrop" id="modal" hidden></div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

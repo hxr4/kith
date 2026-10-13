@@ -18,9 +18,12 @@ const (
 	FileName      = "kith.toml"
 	PolicyAsk     = "ask"
 	PolicyAuto    = "auto"
-	KithVersion   = "1.0.0"
 	ProtocolMajor = 1
 )
+
+// KithVersion is set at release build time:
+// go build -ldflags "-X kith/internal/config.KithVersion=1.2.3"
+var KithVersion = "1.0.0"
 
 // Config is the content of $KITH_HOME/kith.toml.
 type Config struct {

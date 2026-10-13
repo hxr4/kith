@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Kith
+Comment=Delegate work between your paired machines
+Exec=/usr/bin/kith-gui
+Terminal=false
+Type=Application
+Icon=kith-gui
+Categories=Utility;Network;
+Keywords=gpu;agents;tasks;remote;
+StartupWMClass=kith-gui
+
+ 

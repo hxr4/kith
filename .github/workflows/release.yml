@@ -1,0 +1,129 @@
+name: release
+
+# Push a tag like v1.0.0 to build and publish:
+#   - Kith app: macOS (universal .dmg), Windows (NSIS installer),
+#     Linux x86_64 and Raspberry Pi / Linux arm64 (.deb + .tar.gz)
+#   - kith CLI binaries for 6 targets
+# Builds are unsigned (see README: first-launch notes).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (no publish), e.g. 1.0.0-rc1"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  WAILS_VERSION: v3.0.0-beta.28
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then v="${{ github.event.inputs.version }}"; else v="${GITHUB_REF_NAME#v}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  cli:
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - name: build CLI for all targets
+        env:
+          V: ${{ needs.meta.outputs.version }}
+        run: |
+          mkdir -p out
+          for t in darwin/arm64 darwin/amd64 windows/amd64 linux/amd64 linux/arm64 linux/arm; do
+            o=${t%/*}; a=${t#*/}; ext=""; [ "$o" = windows ] && ext=.exe
+            CGO_ENABLED=0 GOOS=$o GOARCH=$a go build -trimpath \
+              -ldflags "-s -w -X kith/internal/config.KithVersion=$V" -o "out/kith_${V}_${o}_${a}${ext}" ./cmd/kith
+          done
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        with: { name: cli, path: out/* }
+
+  gui:
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, platform: darwin, label: macos_universal }
+          - { os: windows-latest, platform: windows, label: windows_amd64 }
+          - { os: ubuntu-24.04, platform: linux, label: linux_amd64 }
+          - { os: ubuntu-24.04-arm, platform: linux, label: linux_arm64 } # Raspberry Pi 4/5 (64-bit OS)
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      V: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: gui/go.mod, cache-dependency-path: gui/go.sum }
+      - uses: actions/setup-node@v4
+        with: { node-version: "24", cache: npm, cache-dependency-path: gui/frontend/package-lock.json }
+      - name: Linux build dependencies (GTK4 + WebKitGTK 6)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+      - name: NSIS
+        if: matrix.platform == 'windows'
+        run: choco install nsis -y --no-progress && echo "C:\Program Files (x86)\NSIS" >> "$GITHUB_PATH"
+      - name: wails3 CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@${WAILS_VERSION}
+      - name: stamp version
+        run: |
+          sh gui/build/set-version.sh "$V"
+          perl -pi -e "s/^var KithVersion = \"[^\"]*\"/var KithVersion = \"$V\"/" internal/config/config.go
+      - name: package
+        working-directory: gui
+        run: |
+          case "${{ matrix.platform }}" in
+            darwin)  wails3 task darwin:package:universal && wails3 task darwin:create:dmg ;;
+            windows) wails3 task windows:package ;;
+            linux)   wails3 task linux:package VERSION="$V" ;;
+          esac
+          ls -l bin
+      - name: collect
+        run: |
+          mkdir -p out
+          case "${{ matrix.platform }}" in
+            darwin)  cp gui/bin/Kith.dmg "out/Kith_${V}_${{ matrix.label }}.dmg" ;;
+            windows) cp gui/bin/kith-gui-amd64-installer.exe "out/Kith_${V}_${{ matrix.label }}_setup.exe" ;;
+            linux)
+              cp gui/bin/*.deb "out/kith_${V}_${{ matrix.label }}.deb"
+              cp gui/bin/kith-gui_*_linux_*.tar.gz "out/kith_${V}_${{ matrix.label }}.tar.gz" ;;
+          esac
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        with: { name: "gui-${{ matrix.label }}", path: out/* }
+
+  publish:
+    needs: [meta, cli, gui]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - name: checksums
+        run: cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=""; case "$GITHUB_REF_NAME" in *-*) pre="--prerelease";; esac
+          gh release create "$GITHUB_REF_NAME" dist/* $pre --title "Kith $GITHUB_REF_NAME" --notes-file docs/RELEASE_NOTES.md

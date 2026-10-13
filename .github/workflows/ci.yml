@@ -34,6 +34,26 @@ jobs:
         if: runner.os == 'Windows'
         run: go test -count=1 -timeout 20m ./...
 
+  gui:
+    # The desktop app (Wails v3): frontend typecheck/build + Go vet/tests.
+    # Full installers are built by release.yml.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: gui/go.mod, cache-dependency-path: gui/go.sum }
+      - uses: actions/setup-node@v4
+        with: { node-version: "24", cache: npm, cache-dependency-path: gui/frontend/package-lock.json }
+      - name: frontend
+        working-directory: gui/frontend
+        run: npm ci && npm audit --omit=dev && npx tsc --noEmit && npm run build
+      - name: go vet + test (macOS, Windows target)
+        working-directory: gui
+        run: |
+          go vet .
+          GOOS=windows GOARCH=amd64 go vet .
+          go test -count=1 .
+
   build:
     runs-on: ubuntu-latest
     steps:
