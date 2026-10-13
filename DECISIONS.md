@@ -313,3 +313,12 @@ ahead of the Linux/Raspberry Pi releases). RAM probing is now per-OS
 darwin/amd64, windows/amd64, linux/amd64, linux/arm64 and linux/arm (32-bit
 Raspberry Pi OS), and runs the test suite on Ubuntu as well. Linux has no
 service integration yet (systemd is planned with the Linux release).
+
+**D-052 Linux service and sleep prevention.** `kith daemon install` on Linux
+writes a systemd **user** unit (`~/.config/systemd/user/kith.service`;
+`KillMode=mixed` so the daemon's graceful shutdown handles task trees; the
+installer's PATH is captured; logs are appended to `$KITH_HOME/daemon.log`),
+enables and starts it, and enables lingering so it starts at boot without
+a login. That is the headless Raspberry Pi mode. Sleep prevention on Linux
+uses `systemd-inhibit … tail --pid=<task>` (best effort). Firewalls
+(ufw/firewalld) are not managed; the installer prints the rule to add.

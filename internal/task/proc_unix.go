@@ -41,16 +41,25 @@ func KillOrphan(pid int) {
 	}
 }
 
-// PreventSleep keeps the machine awake while pid lives (macOS caffeinate).
+// PreventSleep keeps the machine awake while pid lives: macOS caffeinate;
+// Linux systemd-inhibit holding a sleep/idle lock until pid exits.
+// Best effort: if the tool is missing or not permitted, nothing happens.
 func PreventSleep(pid int) func() {
-	if runtime.GOOS != "darwin" {
+	var argv []string
+	switch runtime.GOOS {
+	case "darwin":
+		argv = []string{"caffeinate", "-i", "-w", itoa(pid)}
+	case "linux":
+		argv = []string{"systemd-inhibit", "--what=sleep:idle", "--who=kith", "--why=kith task running", "--mode=block",
+			"tail", "--pid=" + itoa(pid), "-f", "/dev/null"}
+	default:
 		return func() {}
 	}
-	path, err := exec.LookPath("caffeinate")
+	path, err := exec.LookPath(argv[0])
 	if err != nil {
 		return func() {}
 	}
-	c := exec.Command(path, "-i", "-w", itoa(pid))
+	c := exec.Command(path, argv[1:]...)
 	if err := c.Start(); err != nil {
 		return func() {}
 	}

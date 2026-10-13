@@ -1,4 +1,4 @@
-//go:build !darwin && !windows
+//go:build !darwin && !windows && !linux
 
 package svc
 
@@ -8,7 +8,7 @@ import (
 	"io"
 )
 
-var errUnsupported = errors.New("service installation is supported on macOS and Windows only; run `kith daemon` under your init system")
+var errUnsupported = errors.New("service installation is supported on macOS, Windows and Linux only; run `kith daemon` under your init system")
 
 func Install(home, exe string, out io.Writer) error        { return errUnsupported }
 func Uninstall(home string, out io.Writer) error           { return errUnsupported }
