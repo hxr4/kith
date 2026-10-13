@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const Label = "dev.kith.daemon"
@@ -116,22 +117,41 @@ func Installed(home string) bool {
 	return err == nil && strings.Contains(string(b), "<string>"+html.EscapeString(home)+"</string>")
 }
 
-// Start loads (or restarts) the LaunchAgent.
+func loaded() bool {
+	return exec.Command("launchctl", "print", domain()+"/"+Label).Run() == nil
+}
+
+// Start loads the LaunchAgent, or restarts it in place if already loaded.
+// launchd tears jobs down asynchronously after bootout, so bootstrap is
+// retried briefly (DECISIONS.md D-046).
 func Start(home string) error {
-	if err := exec.Command("launchctl", "bootstrap", domain(), plistPath()).Run(); err != nil {
-		// Already loaded: restart it in place.
+	if loaded() {
 		if b, err := exec.Command("launchctl", "kickstart", "-k", domain()+"/"+Label).CombinedOutput(); err != nil {
 			return fmt.Errorf("launchctl kickstart: %v: %s", err, strings.TrimSpace(string(b)))
 		}
+		return nil
 	}
-	return nil
+	var last error
+	for i := 0; i < 40; i++ {
+		b, err := exec.Command("launchctl", "bootstrap", domain(), plistPath()).CombinedOutput()
+		if err == nil || loaded() {
+			return nil
+		}
+		last = fmt.Errorf("launchctl bootstrap: %v: %s", err, strings.TrimSpace(string(b)))
+		time.Sleep(250 * time.Millisecond)
+	}
+	return last
 }
 
-// Stop unloads the LaunchAgent (KeepAlive would otherwise restart it).
-// It loads again at next login, or with `kith daemon start`.
+// Stop unloads the LaunchAgent (KeepAlive would otherwise restart it) and
+// waits until launchd has finished tearing it down. It loads again at next
+// login, or with `kith daemon start`.
 func Stop(home string) error {
-	if b, err := exec.Command("launchctl", "bootout", domain()+"/"+Label).CombinedOutput(); err != nil {
+	if b, err := exec.Command("launchctl", "bootout", domain()+"/"+Label).CombinedOutput(); err != nil && loaded() {
 		return fmt.Errorf("launchctl bootout: %v: %s", err, strings.TrimSpace(string(b)))
+	}
+	for i := 0; i < 80 && loaded(); i++ {
+		time.Sleep(250 * time.Millisecond)
 	}
 	return nil
 }

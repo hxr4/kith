@@ -269,3 +269,9 @@ is scoped to the DNS Client service, so inbound UDP 5353 to `kith.exe` was
 dropped. `kith daemon install` now also adds "Kith (mDNS UDP 5353)"
 (inbound, Private profile, program-scoped) and `kith doctor` checks it.
 Verification on the PC is pending (docs/PENDING-WINDOWS.md W3).
+
+**D-046 launchd restart race.** `launchctl bootout` returns before launchd has
+finished tearing the job down; an immediate `bootstrap` then fails (found
+with the first `kith daemon restart` under the LaunchAgent). `Stop` now waits
+until `launchctl print` no longer finds the job, and `Start` retries
+`bootstrap` for up to 10 s (or kickstarts if the job is still loaded).
