@@ -493,9 +493,8 @@ func TestCancelAttribution(t *testing.T) {
 	}{{win, "cancelled on the executor"}, {mac, "cancelled by the requester"}} {
 		r := submit(t, mac, win, p, makeSpec(py, 1000, 0.1, ""))
 		waitState(t, win, r.TaskID, task.Running)
-		if pid := win.task(r.TaskID).PID; pid <= 0 {
-			t.Fatal("executor has no pid for a running task")
-		}
+		// RUNNING is journaled just before the process starts; the pid follows.
+		waitFor(t, 10*time.Second, "pid recorded", func() bool { return win.task(r.TaskID).PID > 0 })
 		var tv TaskView
 		c.who.mustCall("cancel", map[string]string{"id": r.TaskID}, &tv)
 		et := waitState(t, win, r.TaskID, task.Cancelled)
