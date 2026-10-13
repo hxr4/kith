@@ -3,7 +3,6 @@
 package caps
 
 import (
-	"errors"
 	"os/exec"
 	"syscall"
 	"unsafe"
@@ -46,8 +45,6 @@ func totalRAM() (uint64, error) {
 	}
 	return m.TotalPhys, nil
 }
-
-func linuxRAM() (uint64, error) { return 0, errors.New("unsupported") }
 
 const createNoWindow = 0x08000000
 

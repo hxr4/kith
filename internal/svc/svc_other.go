@@ -17,8 +17,8 @@ func IsService() bool                                      { return false }
 func RunService(run func(ctx context.Context) error) error { return run(context.Background()) }
 func FirewallRuleExists() (bool, error)                    { return true, nil }
 
-func Installed() bool         { return false }
-func Start(home string) error { return errUnsupported }
-func Stop(home string) error  { return errUnsupported }
+func Installed(home string) bool { return false }
+func Start(home string) error    { return errUnsupported }
+func Stop(home string) error     { return errUnsupported }
 
 func MDNSRuleExists() bool { return true }

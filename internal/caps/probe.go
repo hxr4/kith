@@ -181,7 +181,7 @@ func RunProbe(ctx context.Context, argv []string, scratch string) *protocol.Erro
 	if err := cmd.Run(); err != nil {
 		tail := strings.TrimSpace(out.String())
 		if len(tail) > 400 {
-			tail = "…" + tail[len(tail)-400:]
+			tail = "..." + tail[len(tail)-400:]
 		}
 		if ctx.Err() != nil {
 			return protocol.Errf(protocol.CodeNoMatch, "probe %q timed out after 60s.", strings.Join(argv, " ")).

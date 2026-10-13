@@ -4,7 +4,7 @@ package caps
 
 import "golang.org/x/sys/unix"
 
-func linuxRAM() (uint64, error) {
+func totalRAM() (uint64, error) {
 	var si unix.Sysinfo_t
 	if err := unix.Sysinfo(&si); err != nil {
 		return 0, err

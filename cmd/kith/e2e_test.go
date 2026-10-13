@@ -435,6 +435,9 @@ func TestE2ECLIRunAndWait(t *testing.T) {
 	if err != nil || !strings.Contains(out, "epoch 2/2") || !strings.Contains(out, "COMPLETED") || !strings.Contains(out, "out/model.pt") {
 		t.Fatalf("run: %v\n%s", err, out)
 	}
+	if !strings.Contains(out, " on win\n") { // peer shown by name (Windows report #5)
+		t.Fatalf("run output does not name the peer:\n%s", out)
+	}
 	if _, err := os.Stat(filepath.Join(dir, "out", "model.pt")); err != nil {
 		t.Fatal("output not copied back")
 	}

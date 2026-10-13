@@ -71,7 +71,7 @@ func Install(home, exe string, out io.Writer) error {
 	fmt.Fprintln(out, "Tasks will see this shell's PATH; re-run `kith daemon install` after installing new tools (e.g. another Python).")
 	fmt.Fprintf(out, "Daemon log: %s\n\n", filepath.Join(home, "daemon.log"))
 	fmt.Fprintln(out, "Manual step: macOS may ask to allow \"kith\" to find devices on your local network.")
-	fmt.Fprintln(out, "Allow it, or enable it later in System Settings → Privacy & Security → Local Network.")
+	fmt.Fprintln(out, "Allow it, or enable it later in System Settings > Privacy & Security > Local Network.")
 	fmt.Fprintln(out, "Without it, mDNS discovery and LAN connections can silently fail; `kith doctor` checks this.")
 	return nil
 }

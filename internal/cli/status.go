@@ -41,10 +41,10 @@ func (a *app) statusCmd() *cobra.Command {
 				}
 				return nil
 			}
-			fmt.Fprintf(a.out, "%s%s  pid %d · TCP %d · %s · service: %s\n", label("daemon"), a.p.green("running"), st.PID, st.Port, versionString(), service)
+			fmt.Fprintf(a.out, "%s%s  pid %d, TCP %d, %s, service: %s\n", label("daemon"), a.p.green("running"), st.PID, st.Port, versionString(), service)
 			fmt.Fprintf(a.out, "%s%s  %s\n", label("this"), a.p.bold(st.Name), st.Display)
 			if len(peers) == 0 {
-				fmt.Fprintf(a.out, "%s%s\n", label("peers"), a.p.dim("none — run `kith pair` on both machines"))
+				fmt.Fprintf(a.out, "%s%s\n", label("peers"), a.p.dim("none - run `kith pair` on both machines"))
 			}
 			for i, p := range peers {
 				l := ""
@@ -70,7 +70,7 @@ func (a *app) statusCmd() *cobra.Command {
 				for _, t := range pending {
 					ids = append(ids, t.ID)
 				}
-				fmt.Fprintf(a.out, "%s%s %s → `kith approve` to review\n", label("approval"),
+				fmt.Fprintf(a.out, "%s%s %s: `kith approve` to review\n", label("approval"),
 					a.p.yellow(fmt.Sprintf("%d task(s) waiting:", len(pending))), strings.Join(ids, ", "))
 			}
 			done := 0
@@ -79,7 +79,7 @@ func (a *app) statusCmd() *cobra.Command {
 					done++
 				}
 			}
-			fmt.Fprintf(a.out, "%s%d tasks total, %d completed · `kith tasks` for details\n", label("history"), len(ts), done)
+			fmt.Fprintf(a.out, "%s%d tasks total, %d completed; `kith tasks` for details\n", label("history"), len(ts), done)
 			return nil
 		}}
 }

@@ -63,7 +63,7 @@ func (m Manifest) Summary() string {
 		parts = append(parts, fmt.Sprintf("%s %.0fGB", g.Name, g.VRAMGB))
 	}
 	parts = append(parts, fmt.Sprintf("disk %.0fGB free", m.FreeDiskGB))
-	return strings.Join(parts, " · ")
+	return strings.Join(parts, ", ")
 }
 
 func round1(f float64) float64 { return math.Round(f*10) / 10 }

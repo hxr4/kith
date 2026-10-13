@@ -147,7 +147,7 @@ func (a *app) doctor(ctx context.Context) []check {
 				`re-run "kith daemon install" elevated, or: netsh advfirewall firewall add rule name="Kith (mDNS UDP 5353)" dir=in action=allow protocol=UDP localport=5353 profile=private program="<path to kith.exe>"`)
 		}
 		add("network profile", "info", "the firewall rule only applies on Private networks",
-			"Settings → Network & internet → (your network) → Network profile type: Private")
+			"Settings > Network & internet > (your network) > Network profile type: Private")
 	}
 	// 6. Peers: reachability + AP-isolation heuristic.
 	if derr == nil {
@@ -167,7 +167,7 @@ func (a *app) doctor(ctx context.Context) []check {
 			c, err := net.DialTimeout("tcp", p.LastAddr, 3*time.Second)
 			if err == nil {
 				c.Close()
-				add(name, "warn", "TCP "+p.LastAddr+" reachable but not connected (reconnect pending, or identity mismatch — see daemon log)", "")
+				add(name, "warn", "TCP "+p.LastAddr+" reachable but not connected (reconnect pending, or identity mismatch - see daemon log)", "")
 				continue
 			}
 			host, _, _ := net.SplitHostPort(p.LastAddr)
@@ -180,7 +180,7 @@ func (a *app) doctor(ctx context.Context) []check {
 			detail := fmt.Sprintf("cannot reach %s: %v", p.LastAddr, err)
 			fix := "start the kith daemon there and check its firewall (`kith doctor` on that machine)"
 			if errors.Is(err, syscall.EHOSTUNREACH) || strings.Contains(err.Error(), "no route") || strings.Contains(err.Error(), "unreachable") {
-				fix = "host unreachable: if both machines are on the same Wi-Fi, the router may isolate clients (AP/client isolation, common on guest networks) — use a non-guest network or Ethernet"
+				fix = "host unreachable: if both machines are on the same Wi-Fi, the router may isolate clients (AP/client isolation, common on guest networks) - use a non-guest network or Ethernet"
 			} else if sameSubnet && strings.Contains(err.Error(), "timeout") {
 				fix = "same subnet but connection timed out: check the peer's firewall (Windows: Private profile rule) or AP/client isolation on the Wi-Fi"
 			}
@@ -208,7 +208,7 @@ func (a *app) doctor(ctx context.Context) []check {
 	// 8. macOS Local Network permission hint.
 	if runtime.GOOS == "darwin" {
 		add("local network", "info", "macOS requires Local Network permission for LAN connections",
-			"System Settings → Privacy & Security → Local Network → enable kith (or your terminal app)")
+			"System Settings > Privacy & Security > Local Network > enable kith (or your terminal app)")
 	}
 	return out
 }

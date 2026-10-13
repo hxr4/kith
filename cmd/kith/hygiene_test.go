@@ -2,8 +2,13 @@ package main
 
 import (
 	"bytes"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -44,5 +49,40 @@ func TestNoNonGoalDependencies(t *testing.T) {
 		if strings.Contains(out, bad) {
 			t.Errorf("forbidden dependency %q present", bad)
 		}
+	}
+}
+
+// Kith's own output must be plain ASCII: Windows PowerShell 5.1 decodes
+// captured output with the OEM code page, so "—" became "â€”" (Windows
+// report #6). Task logs are passed through untouched; this only checks the
+// string literals kith itself prints.
+func TestUserFacingStringsAreASCII(t *testing.T) {
+	root := "../../internal"
+	fset := token.NewFileSet()
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+			return err
+		}
+		f, err := parser.ParseFile(fset, p, nil, 0)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			for _, r := range lit.Value {
+				if r > 0x7e {
+					t.Errorf("%s: non-ASCII %q in string literal %s", fset.Position(lit.Pos()), r, lit.Value)
+					break
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

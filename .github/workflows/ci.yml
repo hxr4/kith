@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        os: [macos-latest, windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -21,11 +21,14 @@ jobs:
           python-version: "3.12"
       - name: vet
         run: go vet ./...
-      - name: vet (windows target)
+      - name: vet (all release targets)
         if: runner.os == 'macOS'
-        run: GOOS=windows GOARCH=amd64 go vet ./...
-      - name: test (race, macOS)
-        if: runner.os == 'macOS'
+        run: |
+          for t in darwin/arm64 darwin/amd64 windows/amd64 linux/amd64 linux/arm64 linux/arm; do
+            GOOS=${t%/*} GOARCH=${t#*/} go vet ./...
+          done
+      - name: test (race, macOS/Linux)
+        if: runner.os != 'Windows'
         run: go test -race -count=1 -timeout 20m ./...
       - name: test (Windows)
         if: runner.os == 'Windows'
@@ -43,7 +46,7 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           set -e
-          for t in darwin/arm64 darwin/amd64 windows/amd64; do
+          for t in darwin/arm64 darwin/amd64 windows/amd64 linux/amd64 linux/arm64 linux/arm; do
             GOOS=${t%/*} GOARCH=${t#*/} go build -trimpath -o dist/kith-${t%/*}-${t#*/}$( [ ${t%/*} = windows ] && echo .exe ) ./cmd/kith
           done
           ls -l dist

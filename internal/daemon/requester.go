@@ -26,15 +26,16 @@ type SubmitResult struct {
 	State           string `json:"state"`
 	PendingApproval bool   `json:"pending_approval"`
 	Peer            string `json:"peer"`
+	PeerName        string `json:"peer_name,omitempty"`
 	Code            string `json:"code,omitempty"`
 	Detail          string `json:"detail,omitempty"`
 	Remediation     string `json:"remediation,omitempty"`
 	Existing        bool   `json:"existing,omitempty"`
 }
 
-func submitResult(t store.Task, existing bool) SubmitResult {
-	return SubmitResult{TaskID: t.ID, State: t.State, PendingApproval: t.PendingApproval, Peer: t.PeerFP, Code: t.Code,
-		Detail: t.Detail, Remediation: t.Remediation, Existing: existing}
+func (d *Daemon) submitResult(t store.Task, existing bool) SubmitResult {
+	return SubmitResult{TaskID: t.ID, State: t.State, PendingApproval: t.PendingApproval, Peer: t.PeerFP,
+		PeerName: d.peerName(d.ctx, t.PeerFP), Code: t.Code, Detail: t.Detail, Remediation: t.Remediation, Existing: existing}
 }
 
 // resolvePeer accepts a peer name, display fingerprint or hex prefix.
@@ -83,7 +84,7 @@ func (d *Daemon) submit(ctx context.Context, peerRef string, rawSpec json.RawMes
 				ex, _ = d.st.GetTask(ctx, ex.ID)
 			}
 		}
-		return submitResult(ex, true), nil
+		return d.submitResult(ex, true), nil
 	}
 	p, err := d.resolvePeer(ctx, peerRef)
 	if err != nil {
@@ -124,13 +125,13 @@ func (d *Daemon) submit(ctx context.Context, peerRef string, rawSpec json.RawMes
 		return SubmitResult{}, err
 	}
 	if !created {
-		return submitResult(t, true), nil
+		return d.submitResult(t, true), nil
 	}
 	d.auditTask(audit.EvSubmit, t, task.Submitted, "")
 	d.notify()
 	d.sendSubmit(ctx, c, t)
 	t, _ = d.st.GetTask(ctx, t.ID)
-	return submitResult(t, false), nil
+	return d.submitResult(t, false), nil
 }
 
 // sendSubmit sends task.submit and waits for the accept/reject (which the
@@ -175,6 +176,15 @@ func (d *Daemon) mirrorApply(peerFP string, s protocol.TaskState) {
 		// No visible change: just remember the executor's seq.
 		if s.Seq > 0 {
 			d.st.SetRemoteSeq(ctx, t.ID, s.Seq)
+		}
+		return
+	}
+	if want == t.State {
+		// Same state, new detail/flags (e.g. pending approval, "copying
+		// artifacts back"): update in place; the timeline only records
+		// state changes.
+		if _, err := d.st.UpdateInPlace(ctx, t.ID, ch); err == nil {
+			d.notify()
 		}
 		return
 	}
@@ -280,7 +290,7 @@ func (d *Daemon) copyBack(id string) {
 	}
 	detail := "artifacts copied back"
 	if failed != nil {
-		detail = fmt.Sprintf("copy-back failed (%v); artifacts remain on the executor — use `kith fetch`", failed)
+		detail = fmt.Sprintf("copy-back failed (%v); artifacts remain on the executor; use `kith fetch`", failed)
 	}
 	if _, _, err := d.st.Transition(d.ctx, id, store.Change{State: task.Completed, Detail: detail, RemoteState: task.Completed}, nil); err == nil {
 		d.auditTask(audit.EvState, t, task.Completed, detail)
@@ -371,7 +381,7 @@ func (d *Daemon) cancelTask(ctx context.Context, id string) (store.Task, error) 
 	}
 	if t.Role == store.RoleExecutor {
 		d.auditTask(audit.EvCancel, t, "", "local")
-		d.cancelExec(ctx, t.ID)
+		d.cancelExec(ctx, t.ID, cancelByExecutor)
 	} else {
 		c := d.conn(t.PeerFP)
 		if c == nil {

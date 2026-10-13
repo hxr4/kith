@@ -446,3 +446,62 @@ func TestAuditAccountsForEveryEvent(t *testing.T) {
 		}
 	}
 }
+
+// Regression (Windows report #4): the requester timeline only records state
+// changes — no SUBMITTED/SUBMITTED (pending approval) or
+// FINALIZING/FINALIZING (copy-back) duplicates.
+func assertNoDuplicateStates(t *testing.T, n *node, id string) {
+	t.Helper()
+	trs, _ := n.d.st.Transitions(context.Background(), id)
+	for i := 1; i < len(trs); i++ {
+		if trs[i].State == trs[i-1].State {
+			t.Fatalf("%s: duplicate consecutive state %s in timeline %+v", n.name, trs[i].State, trs)
+		}
+	}
+}
+
+func TestMirrorTimelineHasNoDuplicates(t *testing.T) {
+	py := pythonPath(t)
+	mac := newNode(t, "mac", nil)
+	win := newNode(t, "win", nil)
+	pairNodes(t, mac, win)
+	win.mustCall("set_policy", map[string]string{"peer": "mac", "policy": "ask"}, nil)
+	p := newProject(t, 1000)
+	r := submit(t, mac, win, p, makeSpec(py, 1, 0, ""))
+	waitFor(t, 5*time.Second, "pending mirrored", func() bool { return mac.task(r.TaskID).PendingApproval })
+	var tv TaskView
+	win.mustCall("approve", map[string]string{"id": r.TaskID}, &tv)
+	waitState(t, mac, r.TaskID, task.Completed)
+	assertNoDuplicateStates(t, mac, r.TaskID)
+	assertNoDuplicateStates(t, win, r.TaskID)
+	if d := mac.task(r.TaskID).Detail; d != "artifacts copied back" {
+		t.Fatalf("detail %q", d)
+	}
+}
+
+// Regression (Windows report #2): a cancel issued on the executor is
+// attributed to the executor on both sides.
+func TestCancelAttribution(t *testing.T) {
+	py := pythonPath(t)
+	mac := newNode(t, "mac", nil)
+	win := newNode(t, "win", nil)
+	pairNodes(t, mac, win)
+	p := newProject(t, 1000)
+	for _, c := range []struct {
+		who  *node
+		want string
+	}{{win, "cancelled on the executor"}, {mac, "cancelled by the requester"}} {
+		r := submit(t, mac, win, p, makeSpec(py, 1000, 0.1, ""))
+		waitState(t, win, r.TaskID, task.Running)
+		if pid := win.task(r.TaskID).PID; pid <= 0 {
+			t.Fatal("executor has no pid for a running task")
+		}
+		var tv TaskView
+		c.who.mustCall("cancel", map[string]string{"id": r.TaskID}, &tv)
+		et := waitState(t, win, r.TaskID, task.Cancelled)
+		mt := waitState(t, mac, r.TaskID, task.Cancelled)
+		if et.Detail != c.want || mt.Detail != c.want {
+			t.Fatalf("cancel via %s: executor %q requester %q, want %q", c.who.name, et.Detail, mt.Detail, c.want)
+		}
+	}
+}

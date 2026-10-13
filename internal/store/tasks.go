@@ -174,6 +174,15 @@ type Change struct {
 // If check is non-nil it is called with the current row inside the
 // transaction and may veto the change.
 func (s *Store) Transition(ctx context.Context, id string, c Change, check func(Task) error) (Task, int, error) {
+	return s.apply(ctx, id, c, check, true)
+}
+
+func (s *Store) update(ctx context.Context, id string, c Change, journal bool) (Task, error) {
+	t, _, err := s.apply(ctx, id, c, nil, journal)
+	return t, err
+}
+
+func (s *Store) apply(ctx context.Context, id string, c Change, check func(Task) error, journal bool) (Task, int, error) {
 	var out Task
 	var seq int
 	err := s.tx(ctx, func(tx *sql.Tx) error {
@@ -209,6 +218,10 @@ func (s *Store) Transition(ctx context.Context, id string, c Change, check func(
 			t.State, t.Detail, t.Code, t.Remediation, now, t.Attempt, b2i(t.PendingApproval), t.RemoteSeq, t.RemoteState,
 			t.LastSynced, id); err != nil {
 			return err
+		}
+		if !journal {
+			out = t
+			return nil
 		}
 		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0)+1 FROM transitions WHERE task_id=?`, id).Scan(&seq); err != nil {
 			return err
@@ -270,4 +283,10 @@ func (s *Store) TouchSynced(ctx context.Context, id string) error {
 func (s *Store) SetRemoteSeq(ctx context.Context, id string, seq int) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE tasks SET remote_seq=MAX(remote_seq,?), last_synced=? WHERE id=?`, seq, Now(), id)
 	return err
+}
+
+// UpdateInPlace applies c to the task row without appending a transition
+// (the requester mirror uses it when only details change, not the state).
+func (s *Store) UpdateInPlace(ctx context.Context, id string, c Change) (Task, error) {
+	return s.update(ctx, id, c, false)
 }

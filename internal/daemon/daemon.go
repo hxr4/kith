@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -433,7 +434,12 @@ func (d *Daemon) serveConn(c *peer.Conn, addr string) {
 	d.log.Info("peer connected", "peer", identity.Display(c.PeerFP), "addr", addr, "dialed", c.Dialed)
 	d.goFn(func() { d.onConnect(c) })
 	err := c.Run(d)
-	d.log.Info("peer disconnected", "peer", identity.Display(c.PeerFP), "reason", err)
+	if reason := fmt.Sprint(err); strings.Contains(reason, "duplicate connection") || strings.Contains(reason, "superseded") {
+		// Both sides dialing at once after a restart is normal (D-014).
+		d.log.Debug("peer connection replaced", "peer", identity.Display(c.PeerFP), "reason", err)
+	} else {
+		d.log.Info("peer disconnected", "peer", identity.Display(c.PeerFP), "reason", err)
+	}
 	d.mu.Lock()
 	if d.conns[c.PeerFP] == c {
 		delete(d.conns, c.PeerFP)

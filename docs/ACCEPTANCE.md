@@ -106,5 +106,7 @@ Record results (date, machines, GPU, Kith version, pass/fail per box) below.
 | 2026-10-11 | MacBook Air | HARI-PC · RTX 3050 6GB Laptop · torch 2.5.1+cu121 | **pass** (§2.2, §2.3) | Paired via `--ip` (codes matched); mDNS did not see the PC (→ D-045). Gate verified torch/GPU/CUDA probe; 11.6 MB transferred; 5 epochs at ~2.8 s, test_acc 0.988; `model.pt` sha256 `72ffa3f9…` identical on both sides. Re-run on a rebuilt Mac daemon (auto-reconnect, no re-pair): test_acc 0.987, hashes match. Kith also delivered an updated kith.exe into the PC's Downloads (hash-checked). |
 | 2026-10-13 | MacBook Air | — | Mac-side **pass** | LaunchAgent install (`kith daemon install`) runs the daemon under launchd; CLI installed to `~/.local/bin`. PC not on the Mac's current network → remaining checks listed in `docs/PENDING-WINDOWS.md`. |
 
-Still open on real hardware: §2.4 resilience spot checks, §2.5 reverse
-direction, §2.6 agent path, mDNS discovery — see `docs/PENDING-WINDOWS.md`.
+| 2026-10-13 | MacBook Air | HARI-PC · RTX 3050 · phone hotspot | **pass W1–W9** | Windows CLI and installer; full suite green; mDNS works both ways after the UDP 5353 rule; pairing fail-fast; **reverse Windows→Mac** (hashes match); **real partition** (Wi-Fi off 18 s: executor kept RUNNING, reconnected 20 s after, epochs 1–40 contiguous); **service crash** (`taskkill /F`: SCM restart → INTERRUPTED → resumed from checkpoint at epoch 11 → COMPLETED, model.pt hash matches); **cancel** → CANCELLED in 0.4 s, no python left; service stop/start. Findings fixed in D-047…D-050. |
+
+Still open: §2.6 agent path on real hardware, GitHub CI (W10), and the
+round-6 re-checks in `docs/PENDING-WINDOWS.md`.

@@ -29,11 +29,21 @@ if ($Uninstall) {
     exit 0
 }
 
-New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)
 $svc = Get-Service -Name kith -ErrorAction SilentlyContinue
 $wasRunning = $svc -and $svc.Status -eq "Running"
+# Check elevation up front: replacing the running service's binary means
+# stopping the service, which needs Administrator rights.
+if ($wasRunning -and -not $isAdmin) {
+    Write-Host "The kith service is running and must be stopped to replace its binary." -ForegroundColor Yellow
+    Write-Host "Re-run this script from PowerShell opened with 'Run as administrator'." -ForegroundColor Yellow
+    exit 1
+}
+
+New-Item -ItemType Directory -Force -Path $Dir | Out-Null
 if ($wasRunning) {
-    Write-Host "Stopping the kith service to replace its binary (needs an elevated terminal)..."
+    Write-Host "Stopping the kith service to replace its binary..."
     Stop-Service kith
 }
 if ($Binary) {
@@ -42,7 +52,11 @@ if ($Binary) {
     if (-not (Get-Command go -ErrorAction SilentlyContinue)) { throw "Go is required to build kith (winget install GoLang.Go), or pass -Binary <kith.exe>" }
     Push-Location (Join-Path $PSScriptRoot "..")
     $env:CGO_ENABLED = "0"
+    Write-Host "Building kith from source (a first build downloads modules and can take a few minutes)..."
+    $sw = [Diagnostics.Stopwatch]::StartNew()
     go build -trimpath -o $Exe ./cmd/kith
+    if ($LASTEXITCODE -ne 0) { Pop-Location; if ($wasRunning) { Start-Service kith }; throw "go build failed" }
+    Write-Host ("Built in {0:N0}s." -f $sw.Elapsed.TotalSeconds)
     Pop-Location
 }
 if ($wasRunning) { Start-Service kith }

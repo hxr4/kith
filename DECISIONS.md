@@ -275,3 +275,41 @@ finished tearing the job down; an immediate `bootstrap` then fails (found
 with the first `kith daemon restart` under the LaunchAgent). `Stop` now waits
 until `launchctl print` no longer finds the job, and `Start` retries
 `bootstrap` for up to 10 s (or kickstarts if the job is still loaded).
+
+**D-047 Least-privilege service queries (Windows).** `mgr.Connect` asks for
+`SC_MANAGER_ALL_ACCESS`, so a non-elevated `kith status` printed "Access is
+denied". Status and installation checks now open the SCM with
+`SC_MANAGER_CONNECT` and the service with `SERVICE_QUERY_CONFIG |
+SERVICE_QUERY_STATUS`, both granted to interactive users. Start/stop still
+need elevation and say so.
+
+**D-048 Cancel attribution.** The cancel's origin is recorded: `cancelled by
+the requester` or `cancelled on the executor` (a `kith cancel` run on the
+machine executing the task). The code stays `CANCELLED_BY_PEER`, which is
+accurate from the requester's side. `kith task` shows the task's `pid` while
+it runs, because on Windows `nvidia-smi` cannot see session-0 (service)
+processes.
+
+**D-049 Mirror timeline = state changes only.** When the executor reports
+the same state with new details (pending approval; COMPLETED held as
+FINALIZING during copy-back), the requester updates the row in place
+instead of appending a transition. This removes the SUBMITTED/SUBMITTED and
+FINALIZING/FINALIZING duplicates.
+
+**D-050 ASCII-only CLI text.** Windows PowerShell 5.1 decodes captured
+output with the OEM code page, so `—`/`…` became `â€”`/`â€¦`. Kith's own
+strings are now ASCII (a hygiene test enforces it); task logs pass through
+unchanged. Also: `kith run` names the peer, the "superseded connection"
+message after simultaneous redials is debug-level, `install.ps1` checks
+elevation first and reports build progress, and `.gitattributes` pins line
+endings (a zip copy had dropped `install.sh`'s exec bit; the Makefile now
+calls it via `sh`).
+
+**D-051 Linux builds.** `caps/sys_unix.go` used the macOS-only
+`unix.SysctlUint64`, and the Linux service stub missed the `Installed(home)`
+signature, so Kith did not compile for Linux (found by the first Linux vet,
+ahead of the Linux/Raspberry Pi releases). RAM probing is now per-OS
+(`sys_darwin.go`, `sys_linux.go`), and CI vets and builds darwin/arm64,
+darwin/amd64, windows/amd64, linux/amd64, linux/arm64 and linux/arm (32-bit
+Raspberry Pi OS), and runs the test suite on Ubuntu as well. Linux has no
+service integration yet (systemd is planned with the Linux release).

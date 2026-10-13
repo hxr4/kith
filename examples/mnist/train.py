@@ -52,7 +52,7 @@ opt = torch.optim.Adam(net.parameters(), lr=1e-3)
 start = 0
 ckpt = os.path.join(a.out, "checkpoint.pt")
 if os.path.exists(ckpt):  # resume-if-checkpoint: the script detects its own checkpoint
-    s = torch.load(ckpt, map_location=dev)
+    s = torch.load(ckpt, map_location=dev, weights_only=True)
     net.load_state_dict(s["model"]); opt.load_state_dict(s["opt"]); start = s["epoch"]
     print("resumed from checkpoint at epoch", start, flush=True)
 

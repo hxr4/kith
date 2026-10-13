@@ -463,9 +463,9 @@ func (a *app) tasksCmd() *cobra.Command {
 
 func roleArrow(role string) string {
 	if role == "executor" {
-		return "← in"
+		return "<- in"
 	}
-	return "→ out"
+	return "-> out"
 }
 
 type taskFilter struct {
@@ -542,7 +542,7 @@ func trunc(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n-1] + "…"
+	return s[:n-3] + "..."
 }
 
 func (a *app) taskCmd() *cobra.Command {
@@ -559,6 +559,9 @@ func (a *app) taskCmd() *cobra.Command {
 			fmt.Fprintf(a.out, "%s  %s  (%s, peer %s)\n", a.p.bold(t.ID), a.p.state(t.State), t.Role, t.PeerName)
 			fmt.Fprintf(a.out, "argv:    %q\n", t.Argv)
 			fmt.Fprintf(a.out, "attempt: %d\n", t.Attempt)
+			if t.PID > 0 {
+				fmt.Fprintf(a.out, "pid:     %d\n", t.PID)
+			}
 			if t.Detail != "" {
 				fmt.Fprintf(a.out, "detail:  %s\n", t.Detail)
 			}
@@ -650,7 +653,7 @@ func (a *app) approveCmd(approve bool) *cobra.Command {
 					a.call(cmd, "task", map[string]string{"id": t.ID}, &tv)
 					fmt.Fprintf(a.out, "%s  from %s  %q\n", a.p.bold(t.ID), t.PeerName, tv.Argv)
 				}
-				fmt.Fprintln(a.out, "\nApprove with: kith approve <ID>   ·   deny with: kith deny <ID>")
+				fmt.Fprintln(a.out, "\nApprove with: kith approve <ID>   |   deny with: kith deny <ID>")
 				return nil
 			}
 			var t daemon.TaskView

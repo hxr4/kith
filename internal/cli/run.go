@@ -194,6 +194,9 @@ Exit codes: 0 completed, 2 failed, 3 cancelled, 4 rejected, 1 other errors.`,
 }
 
 func peerLabel(r daemon.SubmitResult) string {
+	if r.PeerName != "" {
+		return r.PeerName
+	}
 	if len(r.Peer) >= 16 {
 		return r.Peer[:16]
 	}
@@ -214,7 +217,7 @@ func (a *app) followToEnd(ctx context.Context, id string) error {
 		}, &lr)
 	if err != nil {
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
-			fmt.Fprintf(a.errOut, "\n%s stopped following; the task keeps running. Resume: kith logs %s -f · stop: kith cancel %s\n",
+			fmt.Fprintf(a.errOut, "\n%s stopped following; the task keeps running. Resume: kith logs %s -f; stop: kith cancel %s\n",
 				a.p.dim("[kith]"), id, id)
 			return nil
 		}
@@ -240,7 +243,7 @@ func (a *app) printSummary(tv daemon.TaskView) {
 	}
 	fmt.Fprintf(a.errOut, "%s %s %s%s", a.p.dim("[kith]"), tv.ID, a.p.state(tv.State), dur)
 	if tv.Detail != "" {
-		fmt.Fprintf(a.errOut, " — %s", tv.Detail)
+		fmt.Fprintf(a.errOut, " - %s", tv.Detail)
 	}
 	fmt.Fprintln(a.errOut)
 	if tv.Remediation != "" {
@@ -251,7 +254,7 @@ func (a *app) printSummary(tv daemon.TaskView) {
 		if ar.Location == store.LocLocal && tv.ProjectDir != "" {
 			where = filepath.Join(tv.ProjectDir, filepath.FromSlash(ar.Path))
 		}
-		fmt.Fprintf(a.errOut, "%s   %s  %s  sha256 %s…\n", a.p.dim("[kith]"), padRight(ar.Path, 20), where, ar.SHA256[:12])
+		fmt.Fprintf(a.errOut, "%s   %s  %s  sha256 %s...\n", a.p.dim("[kith]"), padRight(ar.Path, 20), where, ar.SHA256[:12])
 	}
 }
 

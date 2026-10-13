@@ -40,6 +40,8 @@ type TaskView struct {
 	Artifacts []ArtifactView     `json:"artifacts,omitempty"`
 	Argv      []string           `json:"argv,omitempty"`
 	PeerName  string             `json:"peer_name,omitempty"`
+	// PID of the task's main process (executor side, while it runs).
+	PID int `json:"pid,omitempty"`
 }
 
 type ArtifactView struct {
@@ -243,6 +245,9 @@ func (d *Daemon) taskView(ctx context.Context, id string) (TaskView, error) {
 		return TaskView{}, err
 	}
 	v := TaskView{Task: t, PeerName: d.peerName(ctx, t.PeerFP)}
+	if t.Role == store.RoleExecutor && !task.IsTerminal(t.State) {
+		v.PID = t.PID
+	}
 	v.Timeline, _ = d.st.Transitions(ctx, t.ID)
 	as, _ := d.st.ListArtifacts(ctx, t.ID)
 	v.Artifacts = d.artifactViews(as)

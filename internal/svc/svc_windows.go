@@ -119,7 +119,7 @@ func Install(home, exe string, out io.Writer) error {
 	fmt.Fprintf(out, "Installed and started Windows service %q (automatic start).\n", ServiceName)
 	fmt.Fprintf(out, "Daemon log: %s\\daemon.log\n\n", home)
 	fmt.Fprintln(out, "Manual step: make sure this network is set to Private")
-	fmt.Fprintln(out, "(Settings → Network & internet → your network → Private network); the firewall rule only applies there.")
+	fmt.Fprintln(out, "(Settings > Network & internet > your network > Private network); the firewall rule only applies there.")
 	return nil
 }
 
@@ -172,17 +172,38 @@ func Uninstall(home string, out io.Writer) error {
 	return nil
 }
 
+// openService opens the kith service with only the rights asked for.
+// mgr.Connect requests SC_MANAGER_ALL_ACCESS, which non-elevated users do
+// not have; querying needs only SC_MANAGER_CONNECT plus query rights, which
+// the default service DACL grants to interactive users.
+func openService(access uint32) (*mgr.Service, func(), error) {
+	scm, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
+	if err != nil {
+		return nil, nil, err
+	}
+	name, _ := windows.UTF16PtrFromString(ServiceName)
+	h, err := windows.OpenService(scm, name, access)
+	if err != nil {
+		windows.CloseServiceHandle(scm)
+		return nil, nil, err
+	}
+	return &mgr.Service{Name: ServiceName, Handle: h}, func() {
+		windows.CloseServiceHandle(h)
+		windows.CloseServiceHandle(scm)
+	}, nil
+}
+
+const queryAccess = windows.SERVICE_QUERY_CONFIG | windows.SERVICE_QUERY_STATUS
+
 func Status(home string) (string, error) {
-	m, err := mgr.Connect()
+	s, done, err := openService(queryAccess)
+	if err == windows.ERROR_SERVICE_DOES_NOT_EXIST {
+		return "not installed", nil
+	}
 	if err != nil {
 		return "unknown (" + err.Error() + ")", nil
 	}
-	defer m.Disconnect()
-	s, err := m.OpenService(ServiceName)
-	if err != nil {
-		return "not installed", nil
-	}
-	defer s.Close()
+	defer done()
 	if cfg, err := s.Config(); err == nil && !strings.Contains(strings.ToLower(cfg.BinaryPathName), strings.ToLower(home)) {
 		return "not installed for this home (the service serves another --home)", nil
 	}
@@ -300,31 +321,24 @@ func grantServiceLogonRight(sidStr string) error {
 
 // Installed reports whether the kith service exists and serves this home.
 func Installed(home string) bool {
-	m, err := mgr.Connect()
+	s, done, err := openService(queryAccess)
 	if err != nil {
 		return false
 	}
-	defer m.Disconnect()
-	s, err := m.OpenService(ServiceName)
-	if err != nil {
-		return false
-	}
-	defer s.Close()
+	defer done()
 	cfg, err := s.Config()
 	return err == nil && strings.Contains(strings.ToLower(cfg.BinaryPathName), strings.ToLower(home))
 }
 
 func withService(fn func(*mgr.Service) error) error {
-	m, err := mgr.Connect()
+	s, done, err := openService(queryAccess | windows.SERVICE_START | windows.SERVICE_STOP)
+	if err == windows.ERROR_ACCESS_DENIED {
+		return fmt.Errorf("controlling the kith service needs an elevated (Administrator) terminal")
+	}
 	if err != nil {
 		return err
 	}
-	defer m.Disconnect()
-	s, err := m.OpenService(ServiceName)
-	if err != nil {
-		return err
-	}
-	defer s.Close()
+	defer done()
 	return fn(s)
 }
 

@@ -45,7 +45,7 @@ func CanTransition(from, to string) bool {
 // CheckTransition returns an error for an illegal edge.
 func CheckTransition(from, to string) error {
 	if !CanTransition(from, to) {
-		return fmt.Errorf("illegal transition %s → %s", from, to)
+		return fmt.Errorf("illegal transition %s -> %s", from, to)
 	}
 	return nil
 }

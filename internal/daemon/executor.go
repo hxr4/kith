@@ -33,6 +33,8 @@ type runningTask struct {
 	mu      sync.Mutex
 	proc    *task.Proc
 	timeout bool
+	// cancelBy records who requested a cancel (requester | executor).
+	cancelBy string
 }
 
 func boolp(b bool) *bool { return &b }
@@ -466,7 +468,10 @@ func (d *Daemon) runProcess(rt *runningTask, t store.Task, spec *task.Spec) bool
 				c.Remediation = "raise policy.timeout_minutes"
 			})
 		} else {
-			d.execTransition(context.Background(), t.ID, task.Cancelled, "cancelled by requester", func(c *store.Change) { c.Code = protocol.CodeCancelledByPeer })
+			rt.mu.Lock()
+			by := rt.cancelBy
+			rt.mu.Unlock()
+			d.execTransition(context.Background(), t.ID, task.Cancelled, cancelDetail(by), func(c *store.Change) { c.Code = protocol.CodeCancelledByPeer })
 		}
 		return false
 	case task.Running:
@@ -592,11 +597,24 @@ func (d *Daemon) onRemoteCancel(peerFP, id string) {
 		return
 	}
 	d.auditTask(audit.EvCancel, t, "", "requested by peer")
-	d.cancelExec(d.ctx, id)
+	d.cancelExec(d.ctx, id, cancelByRequester)
+}
+
+// Who asked for a cancel; shown in the task detail on both sides.
+const (
+	cancelByRequester = "requester"
+	cancelByExecutor  = "executor"
+)
+
+func cancelDetail(by string) string {
+	if by == cancelByExecutor {
+		return "cancelled on the executor"
+	}
+	return "cancelled by the requester"
 }
 
 // cancelExec cancels an executor task according to its state.
-func (d *Daemon) cancelExec(ctx context.Context, id string) {
+func (d *Daemon) cancelExec(ctx context.Context, id, by string) {
 	t, err := d.st.GetTask(ctx, id)
 	if err != nil {
 		return
@@ -604,22 +622,29 @@ func (d *Daemon) cancelExec(ctx context.Context, id string) {
 	d.mu.Lock()
 	rt := d.running[id]
 	d.mu.Unlock()
+	why := cancelDetail(by)
+	failed := func(c *store.Change) { c.Code = protocol.CodeCancelledByPeer }
 	switch t.State {
 	case task.Submitted:
-		d.reject(ctx, id, protocol.Errf(protocol.CodeCancelledByPeer, "cancelled by requester before acceptance"), nil)
+		d.reject(ctx, id, protocol.Errf(protocol.CodeCancelledByPeer, "%s before acceptance", why), nil)
 	case task.Accepted:
 		if rt != nil {
 			rt.cancel()
 		}
 		d.execTransition(ctx, id, task.Transferring, "", nil)
-		d.execTransition(ctx, id, task.Failed, protocol.CodeCancelledByPeer, func(c *store.Change) { c.Code = protocol.CodeCancelledByPeer })
+		d.execTransition(ctx, id, task.Failed, why, failed)
 	case task.Transferring, task.Interrupted:
 		if rt != nil {
 			rt.cancel()
 		}
-		d.execTransition(ctx, id, task.Failed, protocol.CodeCancelledByPeer, func(c *store.Change) { c.Code = protocol.CodeCancelledByPeer })
+		d.execTransition(ctx, id, task.Failed, why, failed)
 	case task.Running:
-		if _, err := d.execTransition(ctx, id, task.Cancelling, "cancel requested", nil); err != nil {
+		if rt != nil {
+			rt.mu.Lock()
+			rt.cancelBy = by
+			rt.mu.Unlock()
+		}
+		if _, err := d.execTransition(ctx, id, task.Cancelling, "cancel requested ("+by+")", nil); err != nil {
 			return
 		}
 		if rt != nil {
@@ -632,7 +657,7 @@ func (d *Daemon) cancelExec(ctx context.Context, id string) {
 			}
 		}
 		// No live process (should not happen): finish the cancel directly.
-		d.execTransition(ctx, id, task.Cancelled, "cancelled by requester", func(c *store.Change) { c.Code = protocol.CodeCancelledByPeer })
+		d.execTransition(ctx, id, task.Cancelled, why, failed)
 	}
 }
 
