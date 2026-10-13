@@ -197,6 +197,14 @@ func (d *Daemon) handleIPC(ctx context.Context, req ipc.Request, s *ipc.Stream) 
 		return d.pairIPC(ctx, s, p.IP)
 	case "doctor":
 		return d.doctorInfo(ctx), nil
+	case "shutdown":
+		// Graceful stop (same path as SIGTERM: running tasks → INTERRUPTED).
+		d.log.Info("shutdown requested over IPC")
+		go func() {
+			time.Sleep(150 * time.Millisecond) // let the reply reach the client
+			d.cancel()
+		}()
+		return map[string]any{"stopping": true, "pid": os.Getpid()}, nil
 	}
 	return nil, protocol.Errf(protocol.CodeNotFound, "unknown method %q", req.Method)
 }

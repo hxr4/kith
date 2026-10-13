@@ -410,3 +410,101 @@ func TestE2ERequesterKill9(t *testing.T) {
 		t.Fatal("artifact not copied back after requester crash")
 	}
 }
+
+func exitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	if ee, ok := err.(*exec.ExitError); ok {
+		return ee.ExitCode()
+	}
+	return -1
+}
+
+// `kith run` end to end: inline spec, log following, copy-back, exit codes,
+// detach + wait, and rejection before transfer.
+func TestE2ECLIRunAndWait(t *testing.T) {
+	py := python(t)
+	mac := newProc(t, "mac")
+	win := newProc(t, "win")
+	pairProcs(t, mac, win)
+	dir, _ := writeProject(t, py, 2, 0.05, "fail")
+
+	out, err := mac.cli("run", "--peer", "win", "--dir", dir, "-i", "train.py", "-i", "dataset.zip",
+		"-o", "out/*", "--python", ">=3.6", "--", py, "-u", "train.py", "2", "0.05")
+	if err != nil || !strings.Contains(out, "epoch 2/2") || !strings.Contains(out, "COMPLETED") || !strings.Contains(out, "out/model.pt") {
+		t.Fatalf("run: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "out", "model.pt")); err != nil {
+		t.Fatal("output not copied back")
+	}
+
+	// Failing command → exit 2.
+	out, err = mac.cli("run", "--peer", "win", "--dir", dir, "--", py, "-c", "import sys; print('boom'); sys.exit(9)")
+	if exitCode(err) != 2 || !strings.Contains(out, "boom") || !strings.Contains(out, "status 9") {
+		t.Fatalf("failing run: exit %d\n%s", exitCode(err), out)
+	}
+
+	// Unsatisfiable requirement → rejected before transfer, exit 4 with a fix.
+	out, err = mac.cli("run", "--peer", "win", "--dir", dir, "--pkg", "definitely-not-installed>=1.0", "--", py, "-c", "pass")
+	if exitCode(err) != 4 || !strings.Contains(out, "NO_MATCH") || !strings.Contains(out, "pip install") {
+		t.Fatalf("rejected run: exit %d\n%s", exitCode(err), out)
+	}
+
+	// Detach, then wait.
+	out, err = mac.cli("run", "-d", "--peer", "win", "--dir", dir, "--", py, "-c", "import time; time.sleep(1); print('later')")
+	id := strings.TrimSpace(out)
+	if err != nil || !strings.HasPrefix(id, "tsk_") {
+		t.Fatalf("detach: %v %q", err, out)
+	}
+	out, err = mac.cli("wait", id, "--timeout", "60s")
+	if err != nil || !strings.Contains(out, "COMPLETED") {
+		t.Fatalf("wait: %v\n%s", err, out)
+	}
+	// wait --timeout on a long task → exit 5; then cancel → wait exits 3.
+	out, _ = mac.cli("run", "-d", "--peer", "win", "--dir", dir, "--", py, "-c", "import time; time.sleep(60)")
+	long := strings.TrimSpace(out)
+	if _, err := mac.cli("wait", long, "--timeout", "1s"); exitCode(err) != 5 {
+		t.Fatalf("wait timeout exit %d", exitCode(err))
+	}
+	mac.mustCLI("cancel", long)
+	if _, err := mac.cli("wait", long); exitCode(err) != 3 {
+		t.Fatalf("wait after cancel exit %d", exitCode(err))
+	}
+
+	// Filters and status.
+	if out := mac.mustCLI("tasks", "--state", "FAILED"); !strings.Contains(out, "FAILED") || strings.Contains(out, "COMPLETED") {
+		t.Fatalf("tasks --state:\n%s", out)
+	}
+	if out := mac.mustCLI("status"); !strings.Contains(out, "running") || !strings.Contains(out, "win") {
+		t.Fatalf("status:\n%s", out)
+	}
+}
+
+// Background lifecycle without a service: start, status, stop, logs.
+func TestE2EDaemonStartStop(t *testing.T) {
+	home := tempDir(t, "kds")
+	port := freePort(t)
+	os.WriteFile(filepath.Join(home, "kith.toml"), []byte(fmt.Sprintf("port = %d\nname = \"bg\"\nbind = \"127.0.0.1\"\nmdns = false\n", port)), 0o600)
+	p := &proc{t: t, name: "bg", home: home}
+	t.Cleanup(func() { p.cli("daemon", "stop") })
+	out := p.mustCLI("daemon", "start")
+	if !strings.Contains(out, "daemon started") {
+		t.Fatal(out)
+	}
+	if out := p.mustCLI("daemon", "start"); !strings.Contains(out, "already running") {
+		t.Fatal(out)
+	}
+	if out := p.mustCLI("daemon", "status"); !strings.Contains(out, "daemon:  running") {
+		t.Fatal(out)
+	}
+	if out := p.mustCLI("daemon", "logs", "-n", "5"); !strings.Contains(out, "kith daemon started") {
+		t.Fatalf("logs:\n%s", out)
+	}
+	if out := p.mustCLI("daemon", "stop"); !strings.Contains(out, "daemon stopped") {
+		t.Fatal(out)
+	}
+	if out := p.mustCLI("status"); !strings.Contains(out, "not running") {
+		t.Fatal(out)
+	}
+}

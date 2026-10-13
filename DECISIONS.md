@@ -248,3 +248,24 @@ gets `unpaired: false` reads the following GOAWAY and reports its reason
 code; this does not count as a failed attempt. (Found in the first real
 Mac↔Windows pairing: the Mac showed a code for a PC that was not yet running
 `kith pair`.)
+
+**D-043 CLI additions (post-v1 usability).** `kith status`, `kith run` (inline
+task spec from flags, follows logs), `kith wait`, `kith daemon
+start|stop|restart|logs`, `kith config list|get|set|unset|path`, task filters,
+`kith approve` without an ID lists pending tasks, `--version`, `--no-color`,
+dynamic shell completion. Exit codes: 0 ok, 1 error, 2 FAILED, 3 CANCELLED,
+4 REJECTED, 5 wait timeout. New IPC method `shutdown` (graceful, same path
+as SIGTERM). Install via `scripts/install.sh` (→ `~/.local/bin`, zsh
+completion) / `scripts/install.ps1`. None of this adds a §2 non-goal.
+
+**D-044 Services are bound to a home.** `kith daemon start/stop/status` only
+treat the LaunchAgent / Windows service as "the daemon" when its arguments
+name the same `--home`; any other home is managed as a background process.
+(Prevents `--home /tmp/x daemon start` from restarting the real service.)
+
+**D-045 Windows mDNS firewall rule.** On the real LAN the Mac never saw the
+PC via mDNS although TCP 7420 worked. Windows' built-in "mDNS (UDP-In)" rule
+is scoped to the DNS Client service, so inbound UDP 5353 to `kith.exe` was
+dropped. `kith daemon install` now also adds "Kith (mDNS UDP 5353)"
+(inbound, Private profile, program-scoped) and `kith doctor` checks it.
+Verification on the PC is pending (docs/PENDING-WINDOWS.md W3).

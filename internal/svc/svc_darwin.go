@@ -88,6 +88,9 @@ func Status(home string) (string, error) {
 	if _, err := os.Stat(plistPath()); err != nil {
 		return "not installed", nil
 	}
+	if !Installed(home) {
+		return "not installed for this home (the LaunchAgent serves another --home)", nil
+	}
 	b, err := exec.Command("launchctl", "print", domain()+"/"+Label).CombinedOutput()
 	if err != nil {
 		return "installed, not loaded", nil
@@ -106,3 +109,31 @@ func IsService() bool { return false }
 func RunService(run func(ctx context.Context) error) error { return run(context.Background()) }
 
 func FirewallRuleExists() (bool, error) { return true, nil }
+
+// Installed reports whether the LaunchAgent exists and serves this home.
+func Installed(home string) bool {
+	b, err := os.ReadFile(plistPath())
+	return err == nil && strings.Contains(string(b), "<string>"+html.EscapeString(home)+"</string>")
+}
+
+// Start loads (or restarts) the LaunchAgent.
+func Start(home string) error {
+	if err := exec.Command("launchctl", "bootstrap", domain(), plistPath()).Run(); err != nil {
+		// Already loaded: restart it in place.
+		if b, err := exec.Command("launchctl", "kickstart", "-k", domain()+"/"+Label).CombinedOutput(); err != nil {
+			return fmt.Errorf("launchctl kickstart: %v: %s", err, strings.TrimSpace(string(b)))
+		}
+	}
+	return nil
+}
+
+// Stop unloads the LaunchAgent (KeepAlive would otherwise restart it).
+// It loads again at next login, or with `kith daemon start`.
+func Stop(home string) error {
+	if b, err := exec.Command("launchctl", "bootout", domain()+"/"+Label).CombinedOutput(); err != nil {
+		return fmt.Errorf("launchctl bootout: %v: %s", err, strings.TrimSpace(string(b)))
+	}
+	return nil
+}
+
+func MDNSRuleExists() bool { return true }

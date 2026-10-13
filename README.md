@@ -21,21 +21,21 @@ once; after that, delegation follows each machine's per-peer policy.
 
 ## Install
 
-One static binary per platform (`CGO_ENABLED=0`):
+**macOS** (needs Go; installs `~/.local/bin/kith` + zsh tab completion):
 
 ```bash
-CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -o dist/kith-darwin-arm64 ./cmd/kith
+make install
 ```
 
-```bash
-CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -o dist/kith-darwin-amd64 ./cmd/kith
+**Windows** (PowerShell; installs to `%LOCALAPPDATA%\Programs\kith`, adds it
+to PATH and PowerShell completion):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 ```
 
-```bash
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o dist/kith.exe ./cmd/kith
-```
-
-Put the binary on your `PATH` on both machines.
+Then `kith --version` and `kith status`. Full command reference:
+[`docs/CLI.md`](docs/CLI.md). Prebuilt static binaries: `make dist`.
 
 ## Quickstart (≈ 5 minutes)
 
@@ -73,8 +73,13 @@ each task with `kith approve <id>`, or switch that peer to auto:
 kith peers set-policy <name> auto
 ```
 
-**4. Submit.** On the requester, from a project directory with a `task.toml`
-(see [`examples/mnist`](examples/mnist)):
+**4. Run something.** The quickest way is inline:
+
+```bash
+kith run --peer <name> -i train.py -i dataset.zip -o 'out/*' --gpu 4 -- python -u train.py
+```
+
+Or submit a `task.toml` (see [`examples/mnist`](examples/mnist)):
 
 ```bash
 kith submit -f task.toml --peer <name>
@@ -133,6 +138,11 @@ live logs.
 ## Commands
 
 ```
+kith status                              overview: daemon, peers, tasks, approvals
+kith run [flags] -- <cmd> [args...]      run on a peer without a task.toml
+kith wait <ID>                           block until done (exit code = result)
+kith daemon start|stop|restart|logs      background control
+kith config list|get|set|unset           kith.toml settings
 kith daemon [--home DIR]                 run in foreground
 kith daemon install|uninstall|status
 kith pair [--ip ADDR]                    interactive pairing (run on both machines)

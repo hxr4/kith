@@ -34,6 +34,8 @@ import (
 type app struct {
 	home    string
 	jsonOut bool
+	noColor bool
+	p       painter
 	out     io.Writer
 	errOut  io.Writer
 	in      io.Reader
@@ -58,6 +60,9 @@ func Main(args []string) int {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if err := root.ExecuteContext(ctx); err != nil {
+		if e, ok := err.(exitError); ok {
+			return e.code
+		}
 		if e, ok := err.(*protocol.Error); ok {
 			fmt.Fprintf(a.errOut, "%s: %s\n", e.Code, e.Message)
 			if e.Remediation != "" {
@@ -82,16 +87,36 @@ func (a *app) root() *cobra.Command {
 	}
 	root.PersistentFlags().StringVar(&a.home, "home", "", "Kith home directory (default $KITH_HOME or ~/.kith)")
 	root.PersistentFlags().BoolVar(&a.jsonOut, "json", false, "machine-readable JSON output")
-	root.AddCommand(a.daemonCmd(), a.pairCmd(), a.peersCmd(), a.unpairCmd(), a.idCmd(), a.probeCmd(), a.submitCmd(),
-		a.tasksCmd(), a.taskCmd(), a.logsCmd(), a.cancelCmd(), a.artifactsCmd(), a.fetchCmd(), a.approveCmd(true),
-		a.approveCmd(false), a.doctorCmd(), a.mcpCmd(), a.versionCmd())
+	root.PersistentFlags().BoolVar(&a.noColor, "no-color", false, "disable colored output (also honors NO_COLOR)")
+	root.PersistentPreRun = func(cmd *cobra.Command, _ []string) { a.p = newPainter(a.noColor || a.jsonOut) }
+	root.Version = config.KithVersion
+	root.SetVersionTemplate(versionString() + "\n")
+	root.AddGroup(&cobra.Group{ID: "tasks", Title: "Tasks:"}, &cobra.Group{ID: "peers", Title: "Peers & pairing:"},
+		&cobra.Group{ID: "daemon", Title: "Daemon & setup:"})
+	group := func(id string, cs ...*cobra.Command) []*cobra.Command {
+		for _, c := range cs {
+			c.GroupID = id
+		}
+		return cs
+	}
+	root.AddCommand(group("tasks", a.runCmd(), a.submitCmd(), a.tasksCmd(), a.taskCmd(), a.logsCmd(), a.waitCmd(),
+		a.cancelCmd(), a.approveCmd(true), a.approveCmd(false), a.artifactsCmd(), a.fetchCmd())...)
+	root.AddCommand(group("peers", a.pairCmd(), a.peersCmd(), a.unpairCmd())...)
+	root.AddCommand(group("daemon", a.statusCmd(), a.daemonCmd(), a.configCmd(), a.idCmd(), a.probeCmd(), a.doctorCmd(),
+		a.mcpCmd(), a.versionCmd())...)
 	return root
 }
 
 func (a *app) versionCmd() *cobra.Command {
-	return &cobra.Command{Use: "version", Short: "Print the Kith version", Args: cobra.NoArgs,
+	return &cobra.Command{Use: "version", Short: "Print the Kith version and build details", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			fmt.Fprintf(a.out, "kith %s (Kith/%d)\n", config.KithVersion, protocol.Version)
+			exe, _ := os.Executable()
+			if a.jsonOut {
+				a.printJSON(map[string]string{"version": config.KithVersion, "full": versionString(), "build": buildDetail(), "path": exe})
+				return nil
+			}
+			fmt.Fprintln(a.out, versionString())
+			fmt.Fprintf(a.out, "%s\n%s\n", buildDetail(), exe)
 			return nil
 		}}
 }
@@ -135,6 +160,9 @@ func (a *app) daemonCmd() *cobra.Command {
 	}
 	c.Flags().BoolVar(&asService, "service", false, "running under the OS service manager")
 	c.Flags().MarkHidden("service")
+	c.Use = "daemon"
+	c.Short = "Run the daemon in the foreground, or control it (start|stop|restart|logs|install|uninstall|status)"
+	c.AddCommand(a.daemonControlCmds()...)
 	c.AddCommand(
 		&cobra.Command{Use: "install", Short: "Install and start Kith as a login/boot service", Args: cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
@@ -251,16 +279,12 @@ func (a *app) peersCmd() *cobra.Command {
 				fmt.Fprintln(a.out, "No peers. Run `kith pair` on both machines.")
 				return nil
 			}
-			w := tabwriter.NewWriter(a.out, 2, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "NAME\tFINGERPRINT\tSTATUS\tPOLICY\tADDRESS\tCAPABILITIES")
+			var rows [][]string
 			for _, p := range ps {
-				st := "offline"
-				if p.Reachable {
-					st = "online"
-				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", p.Name, p.Display, st, p.Policy, p.LastAddr, p.Caps)
+				rows = append(rows, []string{a.p.bold(p.Name), p.Display, a.p.online(p.Reachable), p.Policy, p.LastAddr, p.Caps})
 			}
-			return w.Flush()
+			a.table([]string{"NAME", "FINGERPRINT", "STATUS", "POLICY", "ADDRESS", "CAPABILITIES"}, rows)
+			return nil
 		}}
 	c.AddCommand(&cobra.Command{Use: "set-policy <peer> <ask|auto>", Short: "Set whether tasks from a peer need approval", Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -275,7 +299,7 @@ func (a *app) peersCmd() *cobra.Command {
 }
 
 func (a *app) unpairCmd() *cobra.Command {
-	return &cobra.Command{Use: "unpair <FP|name>", Short: "Remove a paired peer", Args: cobra.ExactArgs(1),
+	return &cobra.Command{Use: "unpair <FP|name>", ValidArgsFunction: a.completePeers, Short: "Remove a paired peer", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var r map[string]string
 			if err := a.call(cmd, "unpair", map[string]string{"peer": args[0]}, &r); err != nil {
@@ -359,6 +383,7 @@ func (a *app) submitCmd() *cobra.Command {
 		}}
 	c.Flags().StringVarP(&file, "file", "f", "", "task spec (TOML)")
 	c.Flags().StringVar(&peerRef, "peer", "", "peer name or fingerprint (optional with exactly one peer)")
+	c.RegisterFlagCompletionFunc("peer", a.completePeers)
 	return c
 }
 
@@ -383,31 +408,126 @@ func (a *app) printSubmit(r daemon.SubmitResult) {
 }
 
 func (a *app) tasksCmd() *cobra.Command {
-	return &cobra.Command{Use: "tasks", Short: "List tasks (both directions)", Args: cobra.NoArgs,
+	var state, peerRef, role string
+	var active, pending, all bool
+	var limit int
+	c := &cobra.Command{Use: "tasks", Short: "List tasks in both directions (filters: --active --pending --state --peer --role)",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if all {
+				limit = 100000
+			}
 			var ts []daemon.TaskView
-			if err := a.call(cmd, "tasks", nil, &ts); err != nil {
+			if err := a.call(cmd, "tasks", map[string]int{"limit": 100000}, &ts); err != nil {
 				return err
+			}
+			ts = filterTasks(ts, taskFilter{state: state, peer: peerRef, role: role, active: active, pending: pending})
+			if len(ts) > limit {
+				ts = ts[:limit]
 			}
 			if a.jsonOut {
 				a.printJSON(ts)
 				return nil
 			}
-			w := tabwriter.NewWriter(a.out, 2, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tROLE\tPEER\tSTATE\tNAME\tUPDATED\tDETAIL")
-			for _, t := range ts {
-				role := "→ out"
-				if t.Role == "executor" {
-					role = "← in"
-				}
-				st := t.State
-				if t.PendingApproval {
-					st += " (approval)"
-				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t.ID, role, t.PeerName, st, t.Name, short(t.UpdatedAt), trunc(t.Detail, 60))
+			if len(ts) == 0 {
+				fmt.Fprintln(a.out, "No matching tasks.")
+				return nil
 			}
-			return w.Flush()
+			var rows [][]string
+			for _, t := range ts {
+				st := a.p.state(t.State)
+				if t.PendingApproval {
+					st += a.p.yellow(" (needs approval)")
+				}
+				rows = append(rows, []string{t.ID, roleArrow(t.Role), t.PeerName, st, t.Name, short(t.UpdatedAt), trunc(t.Detail, 50)})
+			}
+			a.table([]string{"ID", "DIR", "PEER", "STATE", "NAME", "UPDATED", "DETAIL"}, rows)
+			return nil
 		}}
+	c.Flags().StringVar(&state, "state", "", "only tasks in this state (e.g. RUNNING, FAILED)")
+	c.Flags().StringVar(&peerRef, "peer", "", "only tasks with this peer (name or fingerprint prefix)")
+	c.Flags().StringVar(&role, "role", "", "out = submitted from here, in = executed here")
+	c.Flags().BoolVar(&active, "active", false, "only unfinished tasks")
+	c.Flags().BoolVar(&pending, "pending", false, "only tasks waiting for approval on this machine")
+	c.Flags().IntVarP(&limit, "limit", "n", 30, "maximum rows")
+	c.Flags().BoolVar(&all, "all", false, "no row limit")
+	c.RegisterFlagCompletionFunc("state", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return task.AllStates, cobra.ShellCompDirectiveNoFileComp
+	})
+	c.RegisterFlagCompletionFunc("peer", a.completePeers)
+	c.RegisterFlagCompletionFunc("role", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return []string{"in", "out"}, cobra.ShellCompDirectiveNoFileComp
+	})
+	return c
+}
+
+func roleArrow(role string) string {
+	if role == "executor" {
+		return "← in"
+	}
+	return "→ out"
+}
+
+type taskFilter struct {
+	state, peer, role string
+	active, pending   bool
+}
+
+func filterTasks(ts []daemon.TaskView, f taskFilter) []daemon.TaskView {
+	var out []daemon.TaskView
+	for _, t := range ts {
+		if f.state != "" && !strings.EqualFold(t.State, f.state) {
+			continue
+		}
+		if f.peer != "" && !strings.EqualFold(t.PeerName, f.peer) && !strings.HasPrefix(t.PeerFP, identity.NormalizeFP(f.peer)) {
+			continue
+		}
+		if f.role == "in" && t.Role != "executor" || f.role == "out" && t.Role != "requester" {
+			continue
+		}
+		if f.active && task.IsTerminal(t.State) {
+			continue
+		}
+		if f.pending && !(t.PendingApproval && t.Role == "executor" && t.State == task.Submitted) {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+// table prints aligned columns; cells may contain ANSI colors.
+func (a *app) table(headers []string, rows [][]string) {
+	w := make([]int, len(headers))
+	for i, h := range headers {
+		w[i] = len(h)
+	}
+	for _, r := range rows {
+		for i, c := range r {
+			if n := len(stripANSI(c)); n > w[i] {
+				w[i] = n
+			}
+		}
+	}
+	line := func(cells []string) {
+		var b strings.Builder
+		for i, c := range cells {
+			if i == len(cells)-1 {
+				b.WriteString(c)
+			} else {
+				b.WriteString(padRight(c, w[i]+2))
+			}
+		}
+		fmt.Fprintln(a.out, strings.TrimRight(b.String(), " "))
+	}
+	hs := make([]string, len(headers))
+	for i, h := range headers {
+		hs[i] = a.p.dim(h)
+	}
+	line(hs)
+	for _, r := range rows {
+		line(r)
+	}
 }
 
 func short(ts string) string {
@@ -426,7 +546,7 @@ func trunc(s string, n int) string {
 }
 
 func (a *app) taskCmd() *cobra.Command {
-	return &cobra.Command{Use: "task <ID>", Short: "Show a task with its timeline and artifacts", Args: cobra.ExactArgs(1),
+	return &cobra.Command{Use: "task <ID>", ValidArgsFunction: a.completeTasks, Short: "Show a task with its timeline and artifacts", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var t daemon.TaskView
 			if err := a.call(cmd, "task", map[string]string{"id": args[0]}, &t); err != nil {
@@ -436,7 +556,7 @@ func (a *app) taskCmd() *cobra.Command {
 				a.printJSON(t)
 				return nil
 			}
-			fmt.Fprintf(a.out, "%s  %s  (%s, peer %s)\n", t.ID, t.State, t.Role, t.PeerName)
+			fmt.Fprintf(a.out, "%s  %s  (%s, peer %s)\n", a.p.bold(t.ID), a.p.state(t.State), t.Role, t.PeerName)
 			fmt.Fprintf(a.out, "argv:    %q\n", t.Argv)
 			fmt.Fprintf(a.out, "attempt: %d\n", t.Attempt)
 			if t.Detail != "" {
@@ -447,7 +567,7 @@ func (a *app) taskCmd() *cobra.Command {
 			}
 			fmt.Fprintln(a.out, "timeline:")
 			for _, tr := range t.Timeline {
-				fmt.Fprintf(a.out, "  %s  %-12s %s\n", short(tr.TS), tr.State, tr.Detail)
+				fmt.Fprintf(a.out, "  %s  %s %s\n", short(tr.TS), padRight(a.p.state(tr.State), 12), tr.Detail)
 			}
 			if len(t.Artifacts) > 0 {
 				fmt.Fprintln(a.out, "artifacts:")
@@ -461,7 +581,7 @@ func (a *app) taskCmd() *cobra.Command {
 
 func (a *app) logsCmd() *cobra.Command {
 	var follow bool
-	c := &cobra.Command{Use: "logs <ID>", Short: "Print task output", Args: cobra.ExactArgs(1),
+	c := &cobra.Command{Use: "logs <ID>", ValidArgsFunction: a.completeTasks, Short: "Print task output", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var r daemon.LogsResult
 			err := a.client().Stream(cmd.Context(), "logs", map[string]any{"id": args[0], "follow": follow, "max": 1 << 30},
@@ -485,7 +605,7 @@ func (a *app) logsCmd() *cobra.Command {
 }
 
 func (a *app) cancelCmd() *cobra.Command {
-	return &cobra.Command{Use: "cancel <ID>", Short: "Cancel a task", Args: cobra.ExactArgs(1),
+	return &cobra.Command{Use: "cancel <ID>", ValidArgsFunction: a.completeActiveTasks, Short: "Cancel a task", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var t daemon.TaskView
 			if err := a.call(cmd, "cancel", map[string]string{"id": args[0]}, &t); err != nil {
@@ -501,12 +621,38 @@ func (a *app) cancelCmd() *cobra.Command {
 }
 
 func (a *app) approveCmd(approve bool) *cobra.Command {
-	use, short, method := "approve <ID>", "Approve a task waiting for approval", "approve"
+	use, short, method := "approve [<ID>]", "Approve a task waiting for approval (no ID: list them)", "approve"
 	if !approve {
 		use, short, method = "deny <ID>", "Deny a task waiting for approval", "deny"
 	}
-	return &cobra.Command{Use: use, Short: short, Args: cobra.ExactArgs(1),
+	args := cobra.MaximumNArgs(1)
+	if !approve {
+		args = cobra.ExactArgs(1)
+	}
+	return &cobra.Command{Use: use, Short: short, Args: args, ValidArgsFunction: a.completePendingTasks,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				var ts []daemon.TaskView
+				if err := a.call(cmd, "tasks", map[string]int{"limit": 100000}, &ts); err != nil {
+					return err
+				}
+				ts = filterTasks(ts, taskFilter{pending: true})
+				if a.jsonOut {
+					a.printJSON(ts)
+					return nil
+				}
+				if len(ts) == 0 {
+					fmt.Fprintln(a.out, "Nothing is waiting for approval.")
+					return nil
+				}
+				for _, t := range ts {
+					var tv daemon.TaskView
+					a.call(cmd, "task", map[string]string{"id": t.ID}, &tv)
+					fmt.Fprintf(a.out, "%s  from %s  %q\n", a.p.bold(t.ID), t.PeerName, tv.Argv)
+				}
+				fmt.Fprintln(a.out, "\nApprove with: kith approve <ID>   ·   deny with: kith deny <ID>")
+				return nil
+			}
 			var t daemon.TaskView
 			if err := a.call(cmd, method, map[string]string{"id": args[0]}, &t); err != nil {
 				return err
@@ -515,7 +661,7 @@ func (a *app) approveCmd(approve bool) *cobra.Command {
 				a.printJSON(t)
 				return nil
 			}
-			fmt.Fprintf(a.out, "%s %s %s\n", t.ID, t.State, t.Detail)
+			fmt.Fprintf(a.out, "%s %s %s\n", t.ID, a.p.state(t.State), t.Detail)
 			if t.Remediation != "" {
 				fmt.Fprintf(a.out, "Fix: %s\n", t.Remediation)
 			}
@@ -524,7 +670,7 @@ func (a *app) approveCmd(approve bool) *cobra.Command {
 }
 
 func (a *app) artifactsCmd() *cobra.Command {
-	return &cobra.Command{Use: "artifacts [<task>]", Short: "List artifacts", Args: cobra.MaximumNArgs(1),
+	return &cobra.Command{Use: "artifacts [<task>]", ValidArgsFunction: a.completeTasks, Short: "List artifacts", Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := ""
 			if len(args) == 1 {
@@ -549,7 +695,7 @@ func (a *app) artifactsCmd() *cobra.Command {
 }
 
 func (a *app) fetchCmd() *cobra.Command {
-	return &cobra.Command{Use: "fetch <task> <path>", Short: "Fetch an artifact retained on the executor", Args: cobra.ExactArgs(2),
+	return &cobra.Command{Use: "fetch <task> <path>", ValidArgsFunction: a.completeArtifactPaths, Short: "Fetch an artifact retained on the executor", Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var r daemon.FetchResult
 			if err := a.call(cmd, "fetch", map[string]string{"id": args[0], "path": args[1]}, &r); err != nil {

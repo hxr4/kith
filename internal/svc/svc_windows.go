@@ -24,8 +24,9 @@ import (
 )
 
 const (
-	ServiceName = "kith"
-	RuleName    = "Kith (TCP 7420)"
+	ServiceName  = "kith"
+	RuleName     = "Kith (TCP 7420)"
+	MDNSRuleName = "Kith (mDNS UDP 5353)"
 )
 
 func isAdmin() bool {
@@ -110,7 +111,7 @@ func Install(home, exe string, out io.Writer) error {
 		fmt.Fprintf(out, "WARNING: could not add firewall rule: %v\n", err)
 		fmt.Fprintf(out, "Add it manually: netsh advfirewall firewall add rule name=\"%s\" dir=in action=allow protocol=TCP localport=7420 profile=private\n", RuleName)
 	} else {
-		fmt.Fprintf(out, "Firewall: allowed inbound TCP 7420 on the Private profile (rule %q).\n", RuleName)
+		fmt.Fprintf(out, "Firewall: allowed inbound TCP 7420 and mDNS (UDP 5353) for kith.exe on the Private profile.\n")
 	}
 	if err := s.Start(); err != nil {
 		return fmt.Errorf("start service: %w (check that the password is correct)", err)
@@ -123,11 +124,16 @@ func Install(home, exe string, out io.Writer) error {
 }
 
 func addFirewallRule(exe string) error {
-	exec.Command("netsh", "advfirewall", "firewall", "delete", "rule", "name="+RuleName).Run()
-	b, err := exec.Command("netsh", "advfirewall", "firewall", "add", "rule", "name="+RuleName, "dir=in", "action=allow",
-		"protocol=TCP", "localport=7420", "profile=private", "program="+exe, "enable=yes").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(b)))
+	for _, r := range []struct{ name, proto, port string }{{RuleName, "TCP", "7420"}, {MDNSRuleName, "UDP", "5353"}} {
+		exec.Command("netsh", "advfirewall", "firewall", "delete", "rule", "name="+r.name).Run()
+		// Windows' built-in mDNS rule only covers the DNS Client service, so
+		// kith.exe needs its own inbound UDP 5353 rule to answer and hear
+		// mDNS (DECISIONS.md D-045).
+		b, err := exec.Command("netsh", "advfirewall", "firewall", "add", "rule", "name="+r.name, "dir=in", "action=allow",
+			"protocol="+r.proto, "localport="+r.port, "profile=private", "program="+exe, "enable=yes").CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%s: %v: %s", r.name, err, strings.TrimSpace(string(b)))
+		}
 	}
 	return nil
 }
@@ -135,6 +141,11 @@ func addFirewallRule(exe string) error {
 func FirewallRuleExists() (bool, error) {
 	err := exec.Command("netsh", "advfirewall", "firewall", "show", "rule", "name="+RuleName).Run()
 	return err == nil, nil
+}
+
+// MDNSRuleExists reports whether the kith.exe mDNS rule is present.
+func MDNSRuleExists() bool {
+	return exec.Command("netsh", "advfirewall", "firewall", "show", "rule", "name="+MDNSRuleName).Run() == nil
 }
 
 func Uninstall(home string, out io.Writer) error {
@@ -156,7 +167,8 @@ func Uninstall(home string, out io.Writer) error {
 		s.Close()
 	}
 	exec.Command("netsh", "advfirewall", "firewall", "delete", "rule", "name="+RuleName).Run()
-	fmt.Fprintln(out, "Service and firewall rule removed. Your identity, peers and tasks in", home, "are kept.")
+	exec.Command("netsh", "advfirewall", "firewall", "delete", "rule", "name="+MDNSRuleName).Run()
+	fmt.Fprintln(out, "Service and firewall rules removed. Your identity, peers and tasks in", home, "are kept.")
 	return nil
 }
 
@@ -171,6 +183,9 @@ func Status(home string) (string, error) {
 		return "not installed", nil
 	}
 	defer s.Close()
+	if cfg, err := s.Config(); err == nil && !strings.Contains(strings.ToLower(cfg.BinaryPathName), strings.ToLower(home)) {
+		return "not installed for this home (the service serves another --home)", nil
+	}
 	st, err := s.Query()
 	if err != nil {
 		return "installed", nil
@@ -281,4 +296,62 @@ func grantServiceLogonRight(sidStr string) error {
 		return fmt.Errorf("LsaAddAccountRights: %w", err)
 	}
 	return nil
+}
+
+// Installed reports whether the kith service exists and serves this home.
+func Installed(home string) bool {
+	m, err := mgr.Connect()
+	if err != nil {
+		return false
+	}
+	defer m.Disconnect()
+	s, err := m.OpenService(ServiceName)
+	if err != nil {
+		return false
+	}
+	defer s.Close()
+	cfg, err := s.Config()
+	return err == nil && strings.Contains(strings.ToLower(cfg.BinaryPathName), strings.ToLower(home))
+}
+
+func withService(fn func(*mgr.Service) error) error {
+	m, err := mgr.Connect()
+	if err != nil {
+		return err
+	}
+	defer m.Disconnect()
+	s, err := m.OpenService(ServiceName)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	return fn(s)
+}
+
+// Start starts the service (needs rights to control it; elevated by default).
+func Start(home string) error {
+	return withService(func(s *mgr.Service) error {
+		if err := s.Start(); err != nil {
+			return fmt.Errorf("start service: %w (run in an elevated terminal)", err)
+		}
+		return nil
+	})
+}
+
+// Stop stops the service and waits up to 20 s for it to stop.
+func Stop(home string) error {
+	return withService(func(s *mgr.Service) error {
+		st, err := s.Control(svc.Stop)
+		if err != nil {
+			return fmt.Errorf("stop service: %w (run in an elevated terminal)", err)
+		}
+		deadline := time.Now().Add(20 * time.Second)
+		for st.State != svc.Stopped && time.Now().Before(deadline) {
+			time.Sleep(300 * time.Millisecond)
+			if st, err = s.Query(); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

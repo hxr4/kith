@@ -140,6 +140,12 @@ func (a *app) doctor(ctx context.Context) []check {
 			add("firewall", "fail", "no inbound firewall rule for TCP 7420",
 				`run "kith daemon install" elevated, or: netsh advfirewall firewall add rule name="Kith (TCP 7420)" dir=in action=allow protocol=TCP localport=7420 profile=private`)
 		}
+		if svc.MDNSRuleExists() {
+			add("firewall mdns", "ok", "inbound mDNS (UDP 5353) rule for kith.exe present", "")
+		} else {
+			add("firewall mdns", "warn", "no inbound UDP 5353 rule for kith.exe: the Mac will not discover this PC via mDNS",
+				`re-run "kith daemon install" elevated, or: netsh advfirewall firewall add rule name="Kith (mDNS UDP 5353)" dir=in action=allow protocol=UDP localport=5353 profile=private program="<path to kith.exe>"`)
+		}
 		add("network profile", "info", "the firewall rule only applies on Private networks",
 			"Settings → Network & internet → (your network) → Network profile type: Private")
 	}
