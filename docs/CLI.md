@@ -43,6 +43,7 @@ it from an elevated terminal so it can stop and restart the service.
 |---|---|
 | `kith run [flags] -- <cmd> [args…]` | run a command on a peer without a task.toml; streams logs; exits with the task result |
 | `kith submit -f task.toml [--peer P]` | submit a TOML task spec |
+| `kith check -f task.toml [--peer P]` | parse a task and check each requirement against the peer's last manifest, without sending it (exit 1 if it can't run) |
 | `kith tasks [--active] [--pending] [--state S] [--peer P] [--role in\|out] [-n N\|--all]` | list tasks |
 | `kith task <ID>` | timeline, argv, artifacts, detail and fix |
 | `kith logs <ID> [-f]` | task output (`-f` follows until it finishes) |

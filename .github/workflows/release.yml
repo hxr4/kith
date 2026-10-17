@@ -1,7 +1,8 @@
 name: release
 
 # Push a tag like v1.0.0 to build and publish:
-#   - Kith app: macOS (universal .dmg), Windows (NSIS installer),
+#   - Kith for macOS: native SwiftUI app (universal .dmg, macOS 26+)
+#   - Kith app (Wails): Windows (NSIS installer),
 #     Linux x86_64 and Raspberry Pi / Linux arm64 (.deb + .tar.gz)
 #   - kith CLI binaries for 6 targets
 # Builds are unsigned (see README: first-launch notes).
@@ -52,13 +53,37 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: cli, path: out/* }
 
+  mac:
+    needs: meta
+    runs-on: macos-26
+    env:
+      V: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - name: Xcode
+        run: |
+          x=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$x" ] && sudo xcode-select -s "$x"
+          xcodebuild -version
+      - name: test
+        working-directory: mac
+        run: swift test
+      - name: package
+        run: |
+          sh mac/scripts/bundle.sh "$V" --dmg
+          mkdir -p out && cp mac/build/Kith.dmg "out/Kith_${V}_macos_universal.dmg"
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        with: { name: gui-macos_universal, path: out/* }
+
   gui:
     needs: meta
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-latest, platform: darwin, label: macos_universal }
           - { os: windows-latest, platform: windows, label: windows_amd64 }
           - { os: ubuntu-24.04, platform: linux, label: linux_amd64 }
           - { os: ubuntu-24.04-arm, platform: linux, label: linux_arm64 } # Raspberry Pi 4/5 (64-bit OS)
@@ -92,7 +117,6 @@ jobs:
         working-directory: gui
         run: |
           case "${{ matrix.platform }}" in
-            darwin)  wails3 task darwin:package:universal && wails3 task darwin:create:dmg ;;
             windows) wails3 task windows:package ;;
             linux)   wails3 task linux:package VERSION="$V" ;;
           esac
@@ -101,7 +125,6 @@ jobs:
         run: |
           mkdir -p out
           case "${{ matrix.platform }}" in
-            darwin)  cp gui/bin/Kith.dmg "out/Kith_${V}_${{ matrix.label }}.dmg" ;;
             windows) cp gui/bin/kith-gui-amd64-installer.exe "out/Kith_${V}_${{ matrix.label }}_setup.exe" ;;
             linux)
               cp gui/bin/*.deb "out/kith_${V}_${{ matrix.label }}.deb"
@@ -112,7 +135,7 @@ jobs:
         with: { name: "gui-${{ matrix.label }}", path: out/* }
 
   publish:
-    needs: [meta, cli, gui]
+    needs: [meta, cli, mac, gui]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:

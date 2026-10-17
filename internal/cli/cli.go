@@ -99,7 +99,7 @@ func (a *app) root() *cobra.Command {
 		}
 		return cs
 	}
-	root.AddCommand(group("tasks", a.runCmd(), a.submitCmd(), a.tasksCmd(), a.taskCmd(), a.logsCmd(), a.waitCmd(),
+	root.AddCommand(group("tasks", a.runCmd(), a.submitCmd(), a.checkCmd(), a.tasksCmd(), a.taskCmd(), a.logsCmd(), a.waitCmd(),
 		a.cancelCmd(), a.approveCmd(true), a.approveCmd(false), a.artifactsCmd(), a.fetchCmd())...)
 	root.AddCommand(group("peers", a.pairCmd(), a.peersCmd(), a.unpairCmd())...)
 	root.AddCommand(group("daemon", a.statusCmd(), a.daemonCmd(), a.configCmd(), a.idCmd(), a.probeCmd(), a.doctorCmd(),

@@ -1,5 +1,5 @@
 # Kith developer shortcuts. Plain `go` commands work too.
-.PHONY: build install uninstall test test-race vet dist clean
+.PHONY: build install uninstall test test-race vet dist clean mac-app mac-dmg mac-test
 
 build:
 	CGO_ENABLED=0 go build -trimpath -o dist/kith ./cmd/kith
@@ -26,5 +26,15 @@ dist:
 		echo "build dist/kith-$$o-$$a$$ext"; \
 		CGO_ENABLED=0 GOOS=$$o GOARCH=$$a go build -trimpath -o dist/kith-$$o-$$a$$ext ./cmd/kith || exit 1; done
 
+# Kith for macOS (SwiftUI, needs Xcode 26+): mac/build/Kith.app
+mac-app:
+	sh mac/scripts/bundle.sh
+
+mac-dmg:
+	sh mac/scripts/bundle.sh "" --dmg
+
+mac-test:
+	cd mac && swift test
+
 clean:
-	rm -rf dist
+	rm -rf dist mac/build

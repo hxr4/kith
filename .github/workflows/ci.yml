@@ -54,6 +54,24 @@ jobs:
           GOOS=windows GOARCH=amd64 go vet .
           go test -count=1 .
 
+  mac:
+    # Kith for macOS (SwiftUI, macOS 26+): unit tests and an arm64 app bundle.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - name: Xcode
+        run: |
+          x=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$x" ] && sudo xcode-select -s "$x"
+          xcodebuild -version
+      - name: test
+        working-directory: mac
+        run: swift test
+      - name: bundle
+        run: ARCHS=arm64 sh mac/scripts/bundle.sh 0.0.0-ci
+
   build:
     runs-on: ubuntu-latest
     steps:

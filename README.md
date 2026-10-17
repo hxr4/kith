@@ -37,6 +37,23 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 Then `kith --version` and `kith status`. Full command reference:
 [`docs/CLI.md`](docs/CLI.md). Prebuilt static binaries: `make dist`.
 
+## Desktop apps
+
+| platform | app | build |
+|---|---|---|
+| macOS 26+ | native SwiftUI menu bar app (`mac/`) | `make mac-app` (Xcode 26+) → `mac/build/Kith.app` |
+| Windows, Linux, Raspberry Pi | Wails v3 tray app (`gui/`) | `release.yml`, or `wails3 task <os>:package` in `gui/` |
+
+Both are thin clients of the local daemon (the IPC socket plus the bundled
+`kith` CLI) and bundle the CLI, so one install gives you the app, the
+daemon and `kith`. On macOS the app lives in the menu bar: peers, approvals
+with Approve / Deny (also as notifications), running tasks with their latest
+log line. The window has Overview, Tasks (live logs, artifacts, cancel),
+Approvals, Machines (policy, unpair), Diagnostics, the pairing ceremony and
+a New task sheet that preflights a `kith.toml` against the peer before
+sending it. Drop a `kith.toml` (or a folder with one) on the window or the
+Dock icon to send it.
+
 ## Quickstart (≈ 5 minutes)
 
 **1. Start the daemon on both machines.** For a quick try, run it in the

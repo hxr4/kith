@@ -42,6 +42,12 @@ type TaskView struct {
 	PeerName  string             `json:"peer_name,omitempty"`
 	// PID of the task's main process (executor side, while it runs).
 	PID int `json:"pid,omitempty"`
+	// From the spec, so the apps show what will run: input files, outputs
+	// and each requirement against the executor's manifest (this machine's,
+	// or the peer's last advertised one on the requester).
+	Inputs       []protocol.FileOffer `json:"inputs,omitempty"`
+	Outputs      []string             `json:"outputs,omitempty"`
+	Requirements []caps.Requirement   `json:"requirements,omitempty"`
 }
 
 type ArtifactView struct {
@@ -253,6 +259,17 @@ func (d *Daemon) taskView(ctx context.Context, id string) (TaskView, error) {
 	v.Artifacts = d.artifactViews(as)
 	if spec, err := task.ParseJSON([]byte(t.SpecJSON)); err == nil {
 		v.Argv = spec.Command
+		v.Inputs = spec.Inputs.Offers
+		v.Outputs = spec.Outputs.Include
+		d.mu.Lock()
+		m, ok := d.localCaps, true
+		if t.Role == store.RoleRequester {
+			m, ok = d.remoteCaps[t.PeerFP]
+		}
+		d.mu.Unlock()
+		if ok {
+			v.Requirements = caps.Explain(m, spec.Env, spec.InputsBytes())
+		}
 	}
 	if st, err := os.Stat(d.logPath(t.ID)); err == nil && st.Size() > v.LogSize {
 		v.LogSize = st.Size()

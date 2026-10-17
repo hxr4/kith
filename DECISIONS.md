@@ -322,3 +322,28 @@ enables and starts it, and enables lingering so it starts at boot without
 a login. That is the headless Raspberry Pi mode. Sleep prevention on Linux
 uses `systemd-inhibit … tail --pid=<task>` (best effort). Firewalls
 (ufw/firewalld) are not managed; the installer prints the rule to add.
+
+**D-053 Desktop apps.** Windows, Linux and the Raspberry Pi use the Wails v3
+app in `gui/` (one web frontend, native tray and notifications). macOS gets
+a native SwiftUI app in `mac/` (menu bar extra, Liquid Glass materials,
+spring-based motion), built as a Swift package and bundled by
+`mac/scripts/bundle.sh`. It needs macOS 26 and Xcode 26 to build. Both apps
+hold no state: they read the daemon over IPC (`$KITH_HOME/ipc.sock`,
+newline-delimited JSON, the same protocol as the CLI) and shell out to the
+bundled `kith` for daemon control, config, doctor, check and submit. In the
+mac bundle the CLI lives in `Contents/Helpers/kith`, because `MacOS/Kith`
+and `MacOS/kith` collide on case-insensitive volumes. Commands run with
+the login shell's PATH, so a LaunchAgent installed from the app snapshots a
+PATH that finds python. Pairing discovery in the mac app browses
+`_kith._tcp` with Network.framework and learns each address with a
+throwaway TCP connect. The daemon logs the failed handshake at debug.
+
+**D-054 Preflight before sending.** `kith check -f task.toml [--peer P]`
+parses a task, sizes its inputs and lists each static requirement against
+the peer's last advertised manifest (`caps.Explain`: pass / fail / unknown).
+A package the manifest doesn't list is "unknown", not "fail", because the
+executor probes the packages a task names when it arrives; `caps.Check`
+stays the authority. The task view over IPC now also carries the spec's
+input files, outputs and the same requirement lines, computed against this
+machine for received tasks and the peer's manifest for sent ones, so
+approval cards show what will run and on what. All fields are additive.
