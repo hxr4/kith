@@ -138,16 +138,53 @@ func (a *app) doctor(ctx context.Context) []check {
 			add("firewall", "ok", "inbound rule for TCP 7420 (Private profile) present", "")
 		} else {
 			add("firewall", "fail", "no inbound firewall rule for TCP 7420",
-				`run "kith daemon install" elevated, or: netsh advfirewall firewall add rule name="Kith (TCP 7420)" dir=in action=allow protocol=TCP localport=7420 profile=private`)
+				`run "kith daemon firewall" from an elevated terminal (the desktop app: Settings > Network > Add firewall rules)`)
 		}
 		if svc.MDNSRuleExists() {
 			add("firewall mdns", "ok", "inbound mDNS (UDP 5353) rule for kith.exe present", "")
 		} else {
 			add("firewall mdns", "warn", "no inbound UDP 5353 rule for kith.exe: the Mac will not discover this PC via mDNS",
-				`re-run "kith daemon install" elevated, or: netsh advfirewall firewall add rule name="Kith (mDNS UDP 5353)" dir=in action=allow protocol=UDP localport=5353 profile=private program="<path to kith.exe>"`)
+				`run "kith daemon firewall" from an elevated terminal; without it peers must pair by IP address`)
 		}
-		add("network profile", "info", "the firewall rule only applies on Private networks",
-			"Settings > Network & internet > (your network) > Network profile type: Private")
+		profiles, err := svc.NetworkProfiles()
+		var public []string
+		for _, p := range profiles {
+			if name, cat, ok := strings.Cut(p, "="); ok && strings.EqualFold(cat, "Public") {
+				public = append(public, name)
+			}
+		}
+		switch {
+		case err != nil || len(profiles) == 0:
+			add("network profile", "info", "the firewall rule only applies on Private networks",
+				"Settings > Network & internet > (your network) > Network profile type: Private")
+		case len(public) > 0:
+			add("network profile", "warn", "network "+strings.Join(public, ", ")+" is Public: the firewall rule only applies on Private networks",
+				"Settings > Network & internet > (your network) > Network profile type: Private. Kith picks up the change without a restart.")
+		default:
+			add("network profile", "ok", "Private ("+strings.Join(profiles, ", ")+")", "")
+		}
+	}
+	// Python and GPU, as this machine advertises them to peers.
+	if derr == nil {
+		if len(info.Caps.Python) == 0 {
+			fix := "install Python 3 and make sure the daemon's PATH finds it (restart the daemon after installing)"
+			if runtime.GOOS == "windows" {
+				fix = "install Python from python.org, then turn off the python.exe alias in Settings > Apps > Advanced app settings > App execution aliases (the Microsoft Store stub does not count)"
+			}
+			add("python", "warn", "no Python interpreter found on the daemon's PATH", fix)
+		} else {
+			add("python", "ok", "Python "+strings.Join(info.Caps.Python, ", "), "")
+		}
+		if len(info.Caps.GPUs) == 0 {
+			add("nvidia-smi", "info", "no NVIDIA GPU visible (nvidia-smi missing or no GPU)",
+				"tasks that require a GPU will be rejected here; install the NVIDIA driver if this machine has one")
+		} else {
+			var gs []string
+			for _, g := range info.Caps.GPUs {
+				gs = append(gs, fmt.Sprintf("%s %.1f GB", g.Name, g.VRAMGB))
+			}
+			add("nvidia-smi", "ok", strings.Join(gs, ", "), "")
+		}
 	}
 	// 6. Peers: reachability + AP-isolation heuristic.
 	if derr == nil {

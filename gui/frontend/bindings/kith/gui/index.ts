@@ -7,5 +7,8 @@ export {
 };
 
 export {
+    AppInfo,
+    CLIInfo,
+    Found,
     Snapshot
 } from "./models.js";

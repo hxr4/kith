@@ -191,16 +191,18 @@ tasks:
       - wails3 generate bindings -f '{{.BUILD_FLAGS}}' -clean=true{{if eq .OBFUSCATED "true"}} -obfuscated{{end}} -ts -i
 
   generate:icons:
-    summary: Generates Windows `.ico` and Mac `.icns` from an image; on macOS, `-iconcomposerinput appicon.icon -macassetdir darwin` also produces `Assets.car` from a `.icon` file (skipped on other platforms).
+    summary: Draws every icon (app .png/.ico/.icns, tray, favicon) from the brand geometry in build/icongen. The .icns is only rebuilt on macOS (it needs iconutil).
     run: once
-    dir: build
     sources:
-      - "appicon.png"
+      - "build/icongen/main.go"
     generates:
-      - "darwin/icons.icns"
-      - "windows/icon.ico"
+      - "build/appicon.png"
+      - "build/darwin/icons.icns"
+      - "build/windows/icon.ico"
+      - "icons/*.png"
+      - "frontend/public/icon.png"
     cmds:
-      - wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename windows/icon.ico
+      - go run ./build/icongen
 
   dev:frontend:
     summary: Runs the frontend in development mode

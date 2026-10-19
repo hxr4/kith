@@ -13,6 +13,133 @@ import * as json$0 from "../../encoding/json/models.js";
 import * as jsontext$0 from "../../encoding/json/jsontext/models.js";
 
 /**
+ * AppInfo is what the frontend needs to pick chrome, theme and copy.
+ */
+export class AppInfo {
+    /**
+     * windows | linux | darwin
+     */
+    "platform": string;
+
+    /**
+     * windows | linux | mac (window decorations drawn by the app)
+     */
+    "chrome": string;
+    "lite": boolean;
+    "mica": boolean;
+    "home": string;
+    "user": string;
+    "version": string;
+    "log_path": string;
+
+    /** Creates a new AppInfo instance. */
+    constructor($$source: Partial<AppInfo> = {}) {
+        if (!("platform" in $$source)) {
+            this["platform"] = "";
+        }
+        if (!("chrome" in $$source)) {
+            this["chrome"] = "";
+        }
+        if (!("lite" in $$source)) {
+            this["lite"] = false;
+        }
+        if (!("mica" in $$source)) {
+            this["mica"] = false;
+        }
+        if (!("home" in $$source)) {
+            this["home"] = "";
+        }
+        if (!("user" in $$source)) {
+            this["user"] = "";
+        }
+        if (!("version" in $$source)) {
+            this["version"] = "";
+        }
+        if (!("log_path" in $$source)) {
+            this["log_path"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AppInfo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AppInfo {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AppInfo($$parsedSource as Partial<AppInfo>);
+    }
+}
+
+/**
+ * CLIInfo says whether `kith` resolves for new terminals.
+ */
+export class CLIInfo {
+    "on_path": boolean;
+    "path": string;
+
+    /** Creates a new CLIInfo instance. */
+    constructor($$source: Partial<CLIInfo> = {}) {
+        if (!("on_path" in $$source)) {
+            this["on_path"] = false;
+        }
+        if (!("path" in $$source)) {
+            this["path"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new CLIInfo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): CLIInfo {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new CLIInfo($$parsedSource as Partial<CLIInfo>);
+    }
+}
+
+/**
+ * Found is a Kith daemon advertising on the LAN (pairing: Choose step).
+ */
+export class Found {
+    "name": string;
+    "fp": string;
+    "addr": string;
+    "mode": string;
+    "paired": boolean;
+
+    /** Creates a new Found instance. */
+    constructor($$source: Partial<Found> = {}) {
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("fp" in $$source)) {
+            this["fp"] = "";
+        }
+        if (!("addr" in $$source)) {
+            this["addr"] = "";
+        }
+        if (!("mode" in $$source)) {
+            this["mode"] = "";
+        }
+        if (!("paired" in $$source)) {
+            this["paired"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new Found instance from a string or object.
+     */
+    static createFrom($$source: any = {}): Found {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new Found($$parsedSource as Partial<Found>);
+    }
+}
+
+/**
  * Snapshot is what the frontend renders; pushed as the "kith:state" event.
  */
 export class Snapshot {

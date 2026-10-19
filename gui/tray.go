@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
@@ -36,7 +37,7 @@ type appSink struct {
 
 const approvalCategory = "kith-approval"
 
-func newAppSink(app *application.App, notif *notifications.NotificationService, svc *KithService) *appSink {
+func newAppSink(app *application.App, notif *notifications.NotificationService, svc *KithService, flyout *application.WebviewWindow) *appSink {
 	s := &appSink{app: app, notif: notif}
 	m := application.NewMenu()
 	s.status = m.Add("Kith: starting…").SetEnabled(false)
@@ -70,7 +71,12 @@ func newAppSink(app *application.App, notif *notifications.NotificationService, 
 	}
 	t.SetTooltip("Kith")
 	t.SetMenu(m)
-	t.OnClick(func() { showWindow(app, "") })
+	if flyout != nil {
+		// Left click toggles the flyout; right click opens the menu.
+		t.AttachWindow(flyout).WindowOffset(12).WindowDebounce(200 * time.Millisecond)
+	} else {
+		t.OnClick(func() { showWindow(app, "") })
+	}
 	s.tray = t
 
 	notif.RegisterNotificationCategory(notifications.NotificationCategory{

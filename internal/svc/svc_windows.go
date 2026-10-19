@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"os/user"
 	"strings"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -136,6 +137,34 @@ func addFirewallRule(exe string) error {
 		}
 	}
 	return nil
+}
+
+// AddFirewallRules adds (or replaces) Kith's inbound Private-profile rules
+// for TCP 7420 and mDNS UDP 5353. Needs an elevated process.
+func AddFirewallRules(exe string) error {
+	if !isAdmin() {
+		return fmt.Errorf("adding firewall rules needs an Administrator: run this from an elevated terminal")
+	}
+	return addFirewallRule(exe)
+}
+
+// NetworkProfiles returns "name=category" for each connected network
+// (category Public, Private or DomainAuthenticated).
+func NetworkProfiles() ([]string, error) {
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command",
+		`Get-NetConnectionProfile | ForEach-Object { $_.Name + '=' + $_.NetworkCategory }`)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000} // CREATE_NO_WINDOW
+	b, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, l := range strings.Split(strings.ReplaceAll(string(b), "\r", ""), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			out = append(out, l)
+		}
+	}
+	return out, nil
 }
 
 func FirewallRuleExists() (bool, error) {

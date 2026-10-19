@@ -42,7 +42,7 @@ Then `kith --version` and `kith status`. Full command reference:
 | platform | app | build |
 |---|---|---|
 | macOS 26+ | native SwiftUI menu bar app (`mac/`) | `make mac-app` (Xcode 26+) → `mac/build/Kith.app` |
-| Windows, Linux, Raspberry Pi | Wails v3 tray app (`gui/`) | `release.yml`, or `wails3 task <os>:package` in `gui/` |
+| Windows, Linux, Raspberry Pi | Wails v3 tray app (`gui/`): Fluent window with its own title bar, tray flyout, Pi lite mode | `release.yml`, or `wails3 task <os>:package` in `gui/`; UI development: `npm run dev` in `gui/frontend`, then open `/?mock` |
 
 Both are thin clients of the local daemon (the IPC socket plus the bundled
 `kith` CLI) and bundle the CLI, so one install gives you the app, the

@@ -172,9 +172,10 @@ func installWindowsElevated() (string, error) {
 // ---- pairing (human-only; streamed to the UI as "kith:pair" events) ----
 
 type pairEvent struct {
-	Kind  string          `json:"kind"` // waiting | code | done | error
+	Kind  string          `json:"kind"` // waiting | code | peer-confirmed | done | error
 	Data  json.RawMessage `json:"data,omitempty"`
 	Error string          `json:"error,omitempty"`
+	Code  string          `json:"code,omitempty"` // the error's code, e.g. PEER_UNREACHABLE
 }
 
 func (s *KithService) emitPair(e pairEvent) {
@@ -214,12 +215,13 @@ func (s *KithService) StartPairing(ip string) error {
 		err := cn.Wait(func(ev string, data json.RawMessage) error {
 			s.emitPair(pairEvent{Kind: ev, Data: data})
 			if ev == "code" && s.app != nil {
-				showWindow(s.app, "#/pair")
+				// Bring the dialog forward; it is already open on its code.
+				showWindow(s.app, "")
 			}
 			return nil
 		}, &peer)
 		if err != nil {
-			s.emitPair(pairEvent{Kind: "error", Error: friendly(err).Error()})
+			s.emitPair(pairEvent{Kind: "error", Error: friendly(err).Error(), Code: protocol.CodeOf(err)})
 			return
 		}
 		s.emitPair(pairEvent{Kind: "done", Data: peer})
@@ -227,15 +229,16 @@ func (s *KithService) StartPairing(ip string) error {
 	return nil
 }
 
-// ConfirmPairing answers "do the codes match?".
-func (s *KithService) ConfirmPairing(match bool) error {
+// ConfirmPairing answers "do the codes match?" for the code on screen; the
+// daemon ignores an answer about a code it no longer shows.
+func (s *KithService) ConfirmPairing(match bool, code string) error {
 	s.mu.Lock()
 	ps := s.pair
 	s.mu.Unlock()
 	if ps == nil {
 		return errors.New("no pairing in progress")
 	}
-	return ps.cn.Send(map[string]bool{"confirm": match})
+	return ps.cn.Send(map[string]any{"confirm": match, "code": code})
 }
 
 func (s *KithService) CancelPairing() {

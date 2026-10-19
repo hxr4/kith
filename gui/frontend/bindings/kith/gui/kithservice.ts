@@ -22,6 +22,21 @@ import * as jsontext$0 from "../../encoding/json/jsontext/models.js";
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+/**
+ * AddFirewallRules runs `kith daemon firewall` in an Administrator window
+ * (Windows asks through UAC; the app never handles credentials).
+ */
+export function AddFirewallRules(): $CancellablePromise<string> {
+    return $Call.ByID(3603052923);
+}
+
+/**
+ * AddToPath adds the bundled CLI's folder to the user PATH (Windows).
+ */
+export function AddToPath(): $CancellablePromise<string> {
+    return $Call.ByID(3789694550);
+}
+
 export function Approve(id: string): $CancellablePromise<json$0.RawMessage> {
     return $Call.ByID(2604013058, id);
 }
@@ -37,12 +52,25 @@ export function Autostart(): $CancellablePromise<boolean> {
     return $Call.ByID(3415534334);
 }
 
+export function CLIStatus(): $CancellablePromise<$models.CLIInfo> {
+    return $Call.ByID(2420441411).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
 export function Cancel(id: string): $CancellablePromise<json$0.RawMessage> {
     return $Call.ByID(1399003491, id);
 }
 
 export function CancelPairing(): $CancellablePromise<void> {
     return $Call.ByID(3904681973);
+}
+
+/**
+ * Check parses a task file and checks it against a peer (kith check).
+ */
+export function Check(path: string, peer: string): $CancellablePromise<json$0.RawMessage> {
+    return $Call.ByID(891136639, path, peer);
 }
 
 /**
@@ -61,10 +89,11 @@ export function ConfigSet(key: string, value: string): $CancellablePromise<strin
 }
 
 /**
- * ConfirmPairing answers "do the codes match?".
+ * ConfirmPairing answers "do the codes match?" for the code on screen; the
+ * daemon ignores an answer about a code it no longer shows.
  */
-export function ConfirmPairing(match: boolean): $CancellablePromise<void> {
-    return $Call.ByID(3214699985, match);
+export function ConfirmPairing(match: boolean, code: string): $CancellablePromise<void> {
+    return $Call.ByID(3214699985, match, code);
 }
 
 /**
@@ -78,6 +107,15 @@ export function Deny(id: string): $CancellablePromise<json$0.RawMessage> {
     return $Call.ByID(4194030927, id);
 }
 
+/**
+ * Discover browses mDNS for other Kith daemons for ~2 s.
+ */
+export function Discover(): $CancellablePromise<$models.Found[]> {
+    return $Call.ByID(1534992662).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
 export function Doctor(): $CancellablePromise<json$0.RawMessage> {
     return $Call.ByID(2626908186);
 }
@@ -87,14 +125,50 @@ export function Fetch(id: string, path: string): $CancellablePromise<json$0.RawM
 }
 
 /**
+ * FitFlyout resizes the tray flyout to its content, keeping its bottom edge
+ * (the tray side) where it is.
+ */
+export function FitFlyout(height: number): $CancellablePromise<void> {
+    return $Call.ByID(2535870159, height);
+}
+
+export function HideFlyout(): $CancellablePromise<void> {
+    return $Call.ByID(3548594214);
+}
+
+export function Info(): $CancellablePromise<$models.AppInfo> {
+    return $Call.ByID(2230839901).then(($result: any) => {
+        return $$createType3($result);
+    });
+}
+
+/**
  * Logs returns task output from a byte offset (poll with next offset).
  */
 export function Logs(id: string, offset: number): $CancellablePromise<json$0.RawMessage> {
     return $Call.ByID(4065979950, id, offset);
 }
 
+/**
+ * OpenPath opens a file or folder with its default app.
+ */
+export function OpenPath(path: string): $CancellablePromise<void> {
+    return $Call.ByID(1808375466, path);
+}
+
 export function Probe(): $CancellablePromise<json$0.RawMessage> {
     return $Call.ByID(2835246841);
+}
+
+export function Quit(): $CancellablePromise<void> {
+    return $Call.ByID(2967258158);
+}
+
+/**
+ * ResolveTaskFile turns a dropped file or folder into a task file path.
+ */
+export function ResolveTaskFile(path: string): $CancellablePromise<string> {
+    return $Call.ByID(3520531372, path);
 }
 
 /**
@@ -102,6 +176,14 @@ export function Probe(): $CancellablePromise<json$0.RawMessage> {
  */
 export function Reveal(path: string): $CancellablePromise<void> {
     return $Call.ByID(2978295720, path);
+}
+
+/**
+ * ServiceStatus is the OS service state for this home ("not installed",
+ * "installed, running", ...).
+ */
+export function ServiceStatus(): $CancellablePromise<string> {
+    return $Call.ByID(1843113814);
 }
 
 /**
@@ -116,12 +198,19 @@ export function SetPolicy(peer: string, policy: string): $CancellablePromise<voi
 }
 
 /**
+ * ShowMain brings the main window forward at a route and hides the flyout.
+ */
+export function ShowMain(route: string): $CancellablePromise<void> {
+    return $Call.ByID(3856039201, route);
+}
+
+/**
  * Snapshot returns the latest polled state (the frontend also receives it
  * as the "kith:state" event).
  */
 export function Snapshot(): $CancellablePromise<$models.Snapshot> {
     return $Call.ByID(582615909).then(($result: any) => {
-        return $$createType0($result);
+        return $$createType4($result);
     });
 }
 
@@ -156,4 +245,8 @@ export function Version(): $CancellablePromise<string> {
 }
 
 // Private type creation functions
-const $$createType0 = $models.Snapshot.createFrom;
+const $$createType0 = $models.CLIInfo.createFrom;
+const $$createType1 = $models.Found.createFrom;
+const $$createType2 = $Create.Array($$createType1);
+const $$createType3 = $models.AppInfo.createFrom;
+const $$createType4 = $models.Snapshot.createFrom;

@@ -347,3 +347,63 @@ stays the authority. The task view over IPC now also carries the spec's
 input files, outputs and the same requirement lines, computed against this
 machine for received tasks and the peer's manifest for sent ones, so
 approval cards show what will run and on what. All fields are additive.
+
+**D-055 Windows / Linux / Pi app redesign.** The Wails frontend follows the
+Claude Design "Quiet instrument, Windows edition": Fluent geometry,
+Segoe UI Variable and Cascadia Mono, the same state chips and link as the
+Mac app. It is plain TypeScript: views return escaped HTML (an `html`
+tagged template) and `morphdom` patches the page, so unchanged nodes keep
+their focus and animations and only new ones animate in. The log console
+and live counters are owned imperatively (`data-keep`). Motion uses only
+transform, opacity and filter. A rolling digit runs through the Web
+Animations API with a safety cancel, so a paused animation clock (an
+occluded window) can never leave a digit invisible.
+On Windows the window is frameless with the app's own title bar; the
+caption buttons are native non-client regions (Snap layouts work) and
+only the empty parts of the title bar drag. Mica sits behind the title
+bar and navigation on Windows 11 22H2+, with solid colours elsewhere.
+Linux keeps native decorations plus an in-app header bar. The tray icon
+has an attached flyout window that sizes itself to its content. Pi lite
+mode is one column with a tab bar, 44 px targets, no blur, no pulses and
+slower polling. New supporting commands: `kith daemon firewall` (the
+"Add firewall rules" button runs it in an Administrator window), and
+`kith doctor` now reports the real Windows network profile
+(Public/Private), Python and nvidia-smi. A development-only mock backend
+(`npm run dev`, `/?mock`) runs the UI in a browser; production builds
+exclude it.
+
+**D-056 The mark.** Kith's logo is two offset half-rings, the two
+machines, passing a dot, the task, between them (`branding/`). The
+geometry lives in one place, `branding/geometry.json`, with a heavier
+"small cut" for 32 px and below. Every raster is drawn from it:
+`gui/build/icongen` writes the app icon (PNG, a per-size .ico, and an
+.icns through iconutil on macOS), the tray icons and the favicon, and the
+`generate:icons` build task runs it. The Mac app draws the same geometry
+in Swift (`MarkGeometry`). On macOS the app icon is a Liquid Glass icon
+(`mac/AppIcon.icon`, from Icon Composer: the halves and the dot as two
+glass layers on teal, white halves and a light-teal dot in Dark);
+`bundle.sh` compiles it with actool 26+ into Assets.car and falls back to
+the flat .icns without it. Its menu bar icon is a template; while a task
+runs, the dot glides from one half to the other, narrowing as it passes
+so it never touches either.
+
+**D-057 Pairing holds together across two GUIs.** Found pairing Mac and
+Windows from the apps. The code arriving no longer navigates the Windows
+app to `#/pair`, which had reset its dialog and left both daemons waiting
+out the two-minute code. In the daemon:
+- **Crossed connections:** when both people choose each other, both ends
+  keep the connection dialed by the smaller fingerprint, so both show the
+  same code. The losing connection is dropped quietly.
+- **Failed dials:** a failed dial ends the session only if no other
+  connection is carrying the ceremony.
+- **Reading during the comparison:** while the human compares codes, the
+  daemon reads the connection, so a cancel or a "they don't match" on the
+  other machine ends the wait at once. The first side to confirm also
+  shows "<name> confirmed" on the other.
+- **Bound confirmations:** a confirmation names the code it answers, and
+  an answer about a code no longer on screen is ignored.
+- **What counts as a failed attempt:** closing the dialog cancels
+  (CANCELLED_BY_PEER) rather than rejecting, and neither a cancel nor an
+  expired code counts toward the rate limit.
+
+Clients now classify errors by code, not by message text.

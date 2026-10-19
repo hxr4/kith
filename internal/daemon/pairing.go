@@ -5,6 +5,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -21,13 +22,45 @@ import (
 // pairSession is an open pairing window driven by one `kith pair` client.
 type pairSession struct {
 	events  chan pairEvent
-	confirm chan bool
-	busy    atomic.Bool
+	confirm chan confirmMsg
+	done    chan struct{} // closed when the client's session ends
 	dialing atomic.Bool
+
+	mu  sync.Mutex
+	cur *ceremony
+}
+
+// confirmMsg is the human's answer. Code is the code they compared; a
+// confirmation for a code that is no longer on screen is ignored.
+type confirmMsg struct {
+	ok   bool
+	code string
+}
+
+// ceremony is one connection being paired over.
+type ceremony struct {
+	c      *peer.Conn
+	dialer string        // fingerprint of the side that dialed c
+	stop   chan struct{} // closed when a crossed connection supersedes c
+}
+
+func (cr *ceremony) superseded() bool {
+	select {
+	case <-cr.stop:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *pairSession) active() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cur != nil
 }
 
 type pairEvent struct {
-	Kind string          `json:"kind"` // waiting | code | done | error
+	Kind string          `json:"kind"` // waiting | code | peer-confirmed | done | error
 	Code string          `json:"code,omitempty"`
 	Peer *PeerView       `json:"peer,omitempty"`
 	Addr string          `json:"addr,omitempty"`
@@ -35,14 +68,48 @@ type pairEvent struct {
 	Msg  string          `json:"message,omitempty"`
 }
 
-// connChannel adapts a pre-Run peer.Conn to pairing.Channel.
-type connChannel struct{ c *peer.Conn }
+// ctrlRead is one ReadCtrl result.
+type ctrlRead struct {
+	env protocol.Envelope
+	err error
+}
 
-func (cc connChannel) Send(typ string, v any) error {
-	_, err := cc.c.Send(typ, v)
+// pairChannel adapts a pre-Run peer.Conn to pairing.Channel. While the human
+// compares codes a single read is in flight (so a cancel from the other
+// side shows at once); Run's first Recv picks up that read.
+type pairChannel struct {
+	c       *peer.Conn
+	pending chan ctrlRead // the in-flight read, or nil
+	stash   *ctrlRead     // a read that completed during the wait
+}
+
+func (pc *pairChannel) Send(typ string, v any) error {
+	_, err := pc.c.Send(typ, v)
 	return err
 }
-func (cc connChannel) Recv() (protocol.Envelope, error) { return cc.c.ReadCtrl() }
+
+func (pc *pairChannel) Recv() (protocol.Envelope, error) {
+	if r := pc.stash; r != nil {
+		pc.stash = nil
+		return r.env, r.err
+	}
+	if pc.pending != nil {
+		r := <-pc.pending
+		pc.pending = nil
+		return r.env, r.err
+	}
+	return pc.c.ReadCtrl()
+}
+
+func (pc *pairChannel) readAhead() <-chan ctrlRead {
+	ch := make(chan ctrlRead, 1)
+	pc.pending = ch
+	go func() {
+		env, err := pc.c.ReadCtrl()
+		ch <- ctrlRead{env, err}
+	}()
+	return ch
+}
 
 func withPort(addr string, def int) string {
 	if _, _, err := net.SplitHostPort(addr); err == nil {
@@ -58,17 +125,20 @@ func (d *Daemon) openPairing() (*pairSession, error) {
 	if d.pairSess != nil {
 		return nil, protocol.Errf(protocol.CodeBusy, "a pairing ceremony is already in progress")
 	}
-	s := &pairSession{events: make(chan pairEvent, 8), confirm: make(chan bool, 1)}
+	s := &pairSession{events: make(chan pairEvent, 8), confirm: make(chan confirmMsg, 1), done: make(chan struct{})}
 	d.pairSess = s
 	return s, nil
 }
 
+// closePairing ends the session; a ceremony still waiting for its human
+// tells the other machine that pairing was cancelled here.
 func (d *Daemon) closePairing(s *pairSession) {
 	d.mu.Lock()
 	if d.pairSess == s {
 		d.pairSess = nil
 	}
 	d.mu.Unlock()
+	close(s.done)
 	d.startAdvertise("available")
 }
 
@@ -85,10 +155,20 @@ func (d *Daemon) pairDial(s *pairSession, addr string) {
 		return
 	}
 	defer s.dialing.Store(false)
+	// A failed dial ends the session only when nothing else is pairing:
+	// when both people choose each other, the other machine's connection
+	// may already be carrying the ceremony.
+	report := func(e *protocol.Error) {
+		if s.active() {
+			d.log.Info("pairing dial failed; continuing with the incoming connection", "addr", addr, "err", e.Message)
+			return
+		}
+		s.emit(pairEvent{Kind: "error", Err: e})
+	}
 	ip := remoteIP(addr)
 	if !d.lim.Allowed(ip) {
 		d.audit.Write(audit.Event{Event: audit.EvPairRateLimited, Addr: ip})
-		s.emit(pairEvent{Kind: "error", Err: pairing.RateLimitedError(ip)})
+		report(pairing.RateLimitedError(ip))
 		return
 	}
 	ctx, cancel := context.WithTimeout(d.ctx, 15*time.Second)
@@ -100,14 +180,14 @@ func (d *Daemon) pairDial(s *pairSession, addr string) {
 			e = protocol.Errf(protocol.CodePeerUnreachable, "cannot reach %s: %v", addr, err).
 				WithFix("check the address, that `kith pair` is running there, and run `kith doctor` (firewall / AP isolation)")
 		}
-		s.emit(pairEvent{Kind: "error", Err: e})
+		report(e)
 		return
 	}
 	if !c.Hello.Unpaired {
 		// The remote is not ready to pair (no pairing window, or we are
 		// rate limited there). It follows its hello with a GOAWAY carrying
 		// the exact reason; report that before any code is shown.
-		s.emit(pairEvent{Kind: "error", Err: notReadyReason(c)})
+		report(notReadyReason(c))
 		c.Close(nil)
 		return
 	}
@@ -132,14 +212,84 @@ func (d *Daemon) acceptPairing(c *peer.Conn, ip string) {
 	d.runPairing(s, c, ip, false)
 }
 
+// crossedMsg marks the GOAWAY for the losing one of two crossed pairing
+// connections: the other end drops it quietly and keeps waiting for the
+// winner, which both ends hold.
+const crossedMsg = "superseded by a crossed pairing connection"
+
+func crossedErr() *protocol.Error { return protocol.Errf(protocol.CodeBusy, "%s", crossedMsg) }
+
+func isCrossed(err error) bool {
+	e, ok := err.(*protocol.Error)
+	return ok && e.Code == protocol.CodeBusy && strings.HasSuffix(e.Message, crossedMsg)
+}
+
+// claim makes c the session's ceremony. When both people choose each other,
+// two connections between the same machines cross; both ends keep the one
+// dialed by the smaller fingerprint, so both show the same code. Any other
+// second connection is turned away.
+func (d *Daemon) claim(s *pairSession, c *peer.Conn, initiator bool) (cr *ceremony, crossed bool) {
+	dialer := c.PeerFP
+	if initiator {
+		dialer = d.id.FP
+	}
+	cr = &ceremony{c: c, dialer: dialer, stop: make(chan struct{})}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if old := s.cur; old != nil {
+		crossed = old.c.PeerFP == c.PeerFP && old.dialer != dialer
+		if !crossed || old.dialer < dialer {
+			return nil, crossed
+		}
+		close(old.stop)
+		old.c.GoAway(crossedErr())
+	}
+	s.cur = cr
+	// A confirmation queued for the previous code must not approve this one.
+	select {
+	case <-s.confirm:
+	default:
+	}
+	return cr, false
+}
+
+func (s *pairSession) release(cr *ceremony) {
+	s.mu.Lock()
+	if s.cur == cr {
+		s.cur = nil
+	}
+	s.mu.Unlock()
+}
+
+// remoteEnded turns the other machine's GOAWAY (or a dropped connection)
+// during the code comparison into the error to show here.
+func remoteEnded(err error, name string) *protocol.Error {
+	if e, ok := err.(*protocol.Error); ok && strings.HasPrefix(e.Message, "peer closed connection: ") {
+		return protocol.Errf(e.Code, "%s", strings.TrimPrefix(e.Message, "peer closed connection: "))
+	}
+	return protocol.Errf(protocol.CodePeerUnreachable, "%s disconnected during pairing", name).
+		WithFix("check that Kith is still running there, then start over on both machines")
+}
+
 func (d *Daemon) runPairing(s *pairSession, c *peer.Conn, ip string, initiator bool) {
-	if !s.busy.CompareAndSwap(false, true) {
-		c.GoAway(protocol.Errf(protocol.CodeBusy, "another pairing ceremony is in progress"))
+	cr, crossed := d.claim(s, c, initiator)
+	if cr == nil {
+		if crossed {
+			c.GoAway(crossedErr())
+		} else {
+			c.GoAway(protocol.Errf(protocol.CodeBusy, "another pairing ceremony is in progress"))
+		}
 		return
 	}
-	defer s.busy.Store(false)
+	defer s.release(cr)
 	d.audit.Write(audit.Event{Event: audit.EvPairStart, PeerFP: c.PeerFP, Addr: ip})
+	// fail ends this ceremony. A superseded ceremony ends quietly: the
+	// crossed connection that replaced it carries on.
 	fail := func(e *protocol.Error, countFailure bool) {
+		if cr.superseded() {
+			c.Close(nil)
+			return
+		}
 		if countFailure {
 			d.lim.Fail(ip)
 		}
@@ -156,29 +306,74 @@ func (d *Daemon) runPairing(s *pairSession, c *peer.Conn, ip string, initiator b
 	if d.opt.PairCodeHook != nil {
 		code = d.opt.PairCodeHook(code)
 	}
+	name := c.Hello.Name
+	if name == "" {
+		name = "the other machine"
+	}
 	pv := &PeerView{FP: c.PeerFP, Display: identity.Display(c.PeerFP), Name: c.Hello.Name}
 	s.emit(pairEvent{Kind: "code", Code: code, Peer: pv, Addr: ip})
-	select {
-	case ok := <-s.confirm:
-		if !ok {
-			fail(protocol.Errf(protocol.CodeAuthFailed, "pairing rejected by the user"), true)
+	ch := &pairChannel{c: c}
+	remote := ch.readAhead()
+	expire := time.NewTimer(pairing.CodeValidity)
+	defer expire.Stop()
+wait:
+	for {
+		select {
+		case m := <-s.confirm:
+			if m.code != "" && !strings.EqualFold(strings.ReplaceAll(m.code, " ", ""), code) {
+				continue // an answer about a code that is no longer shown
+			}
+			if !m.ok {
+				fail(protocol.Errf(protocol.CodeAuthFailed, "pairing rejected by the user on %s: the codes did not match", d.cfg.Name), true)
+				return
+			}
+			break wait
+		case r := <-remote:
+			remote = nil
+			ch.pending = nil
+			if r.err != nil {
+				if cr.superseded() || isCrossed(r.err) {
+					c.Close(nil) // the crossed connection carries on
+					return
+				}
+				e := remoteEnded(r.err, name)
+				d.audit.Write(audit.Event{Event: audit.EvPairFail, PeerFP: c.PeerFP, Addr: ip, Detail: e.Code + ": " + e.Message})
+				c.Close(nil)
+				s.emit(pairEvent{Kind: "error", Err: e})
+				return
+			}
+			// The other side confirmed first; its first message waits for Run.
+			ch.stash = &r
+			if r.env.Type == protocol.MsgPairBegin {
+				s.emit(pairEvent{Kind: "peer-confirmed", Peer: pv})
+			}
+		case <-cr.stop:
+			return
+		case <-expire.C:
+			fail(protocol.Errf(protocol.CodeTimeout, "the pairing code expired after %s without an answer on %s", pairing.CodeValidity, d.cfg.Name), false)
+			return
+		case <-s.done:
+			fail(protocol.Errf(protocol.CodeCancelledByPeer, "pairing was cancelled on %s", d.cfg.Name), false)
+			return
+		case <-d.ctx.Done():
+			c.Close(nil)
 			return
 		}
-	case <-time.After(pairing.CodeValidity):
-		fail(protocol.Errf(protocol.CodeTimeout, "pairing code expired after %s", pairing.CodeValidity), true)
-		return
-	case <-d.ctx.Done():
+	}
+	me := protocol.PairIdentities{Name: d.cfg.Name, PubKey: d.id.Pub, FP: d.id.FP, KithVer: config.KithVersion, Port: d.port}
+	them, err := pairing.Run(ch, code, initiator, d.id.FP, c.PeerFP, me)
+	if err != nil && isCrossed(err) {
 		c.Close(nil)
 		return
 	}
-	me := protocol.PairIdentities{Name: d.cfg.Name, PubKey: d.id.Pub, FP: d.id.FP, KithVer: config.KithVersion, Port: d.port}
-	them, err := pairing.Run(connChannel{c}, code, initiator, d.id.FP, c.PeerFP, me)
 	if err != nil {
 		e := protocol.AsError(err)
-		if e.Code == protocol.CodeInternal {
+		if pe, ok := err.(*protocol.Error); ok && strings.HasPrefix(pe.Message, "peer closed connection: ") {
+			e = remoteEnded(err, name)
+		} else if e.Code == protocol.CodeInternal {
 			e = protocol.Errf(protocol.CodeAuthFailed, "pairing failed: %v", err)
 		}
-		fail(e, true)
+		fail(e, e.Code == protocol.CodeAuthFailed)
 		return
 	}
 	port := them.Port
@@ -213,7 +408,7 @@ func (d *Daemon) pairFromDiscovery(s *pairSession, es []discovery.Entry) {
 		if e.Mode != "pairing" || e.MatchesFP(d.id.FP) {
 			continue
 		}
-		if identity.NormalizeFP(identity.Display(d.id.FP)) < identity.NormalizeFP(e.FPDisplay) && !s.busy.Load() {
+		if identity.NormalizeFP(identity.Display(d.id.FP)) < identity.NormalizeFP(e.FPDisplay) && !s.active() {
 			addr := e.Addr
 			d.goFn(func() { d.pairDial(s, addr) })
 			return

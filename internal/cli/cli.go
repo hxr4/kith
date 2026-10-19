@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"syscall"
@@ -177,6 +178,22 @@ func (a *app) daemonCmd() *cobra.Command {
 				}
 				return svc.Install(home, exe, a.out)
 			}},
+		&cobra.Command{Use: "firewall", Short: "Add the inbound firewall rules Kith needs (Windows, elevated)", Args: cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				if runtime.GOOS != "windows" {
+					fmt.Fprintln(a.out, "No firewall rules are needed on this OS.")
+					return nil
+				}
+				exe, err := os.Executable()
+				if err != nil {
+					return err
+				}
+				if err := svc.AddFirewallRules(exe); err != nil {
+					return err
+				}
+				fmt.Fprintln(a.out, "Added the inbound Kith rules (TCP 7420 and mDNS UDP 5353) for Private networks.")
+				return nil
+			}},
 		&cobra.Command{Use: "uninstall", Short: "Stop and remove the Kith service", Args: cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error { return svc.Uninstall(config.ResolveHome(a.home), a.out) }},
 		&cobra.Command{Use: "status", Short: "Show service and daemon status", Args: cobra.NoArgs,
@@ -241,7 +258,15 @@ func (a *app) pairCmd() *cobra.Command {
 						line, _ := stdin.ReadString('\n')
 						ok = strings.EqualFold(strings.TrimSpace(line), "y") || strings.EqualFold(strings.TrimSpace(line), "yes")
 					}
-					return cn.Send(map[string]bool{"confirm": ok})
+					return cn.Send(map[string]any{"confirm": ok, "code": e.Code})
+				case "peer-confirmed":
+					var e struct {
+						Peer *daemon.PeerView `json:"peer"`
+					}
+					json.Unmarshal(data, &e)
+					if e.Peer != nil && e.Peer.Name != "" {
+						fmt.Fprintf(a.out, "%s confirmed the code.\n", e.Peer.Name)
+					}
 				}
 				return nil
 			}, &peer)

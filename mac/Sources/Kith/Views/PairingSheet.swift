@@ -11,6 +11,7 @@ final class PairSession {
     var peerName = ""
     var target = ""          // ip we dialed, "" when waiting for the other side
     var peer: Peer?
+    var peerConfirmed = false // the other machine said its code matches
     var error: KithError?
     var startedAt = Date()
     private var conn: IPCConnection?
@@ -20,6 +21,7 @@ final class PairSession {
         error = nil
         code = ""
         peer = nil
+        peerConfirmed = false
         peerName = name
         target = ip
         startedAt = Date()
@@ -56,8 +58,14 @@ final class PairSession {
     private func attach(_ c: IPCConnection) { conn = c }
 
     private func event(_ ev: String, _ e: PairEvent?) {
+        if ev == "peer-confirmed" {
+            withAnimation(K.layout) { peerConfirmed = true }
+            return
+        }
         guard ev == "code", let e else { return }
+        // A new code (two crossed connections settling on one) restarts the comparison.
         code = e.code ?? ""
+        peerConfirmed = false
         if let n = e.peer?.name, !n.isEmpty { peerName = n }
         withAnimation(K.layout) { step = .compare }
         NSApp.activate()
@@ -79,7 +87,7 @@ final class PairSession {
 
     func confirm(_ ok: Bool) {
         guard let c = conn else { return }
-        try? c.send(["confirm": ok])
+        try? c.send(["confirm": ok, "code": code] as [String: Any])
         withAnimation(K.layout) { step = ok ? .confirming : .error }
         if !ok { error = KithError(code: "MISMATCH", message: "codes did not match") }
     }
@@ -286,6 +294,9 @@ struct PairingSheet: View {
                 if session.step == .confirming {
                     KSpinner(size: 12)
                     Text("Waiting for \(session.peerName) to confirm…").font(K.ui(12)).foregroundStyle(K.l2)
+                } else if session.peerConfirmed {
+                    Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(K.acc)
+                    Text("\(session.peerName) confirmed. Check the code, then confirm here.").font(K.ui(12)).foregroundStyle(K.l2)
                 }
                 Spacer()
                 Button("They don't match") { session.confirm(false) }.buttonStyle(.kSecondary)
@@ -353,11 +364,23 @@ struct PairingSheet: View {
                     "Nothing was paired and no keys were saved. Start over on both machines and compare the new code.", "Start over")
         case "RATE_LIMITED":
             return ("timer", "Too many attempts", "\(who) paused pairing after repeated failed tries. \(e?.remediation ?? "Wait a while, then try again.")", "OK")
+        case "PEER_UNREACHABLE" where msg.contains("disconnected"):
+            return ("wifi.exclamationmark", "\(who) disconnected", "The connection dropped during pairing. Check that Kith is still running on \(who), then start over.", "Start over")
         case "PEER_UNREACHABLE" where !msg.contains("daemon is not running"):
             return ("wifi.slash", "Can't reach \(session.target.isEmpty ? who : session.target)",
                     "Check that both machines are on the same network and that a VPN isn't routing local traffic.", "Run diagnostics")
         case "TIMEOUT":
-            return ("clock", "\(who) didn't answer in time", e?.remediation ?? "Open Kith on both machines and choose Pair on each.", "Try again")
+            if msg.contains("within 5 minutes") {
+                return ("clock", "No machine connected", "Open Kith on the other machine and choose Pair a Machine, then start again here.", "Start over")
+            }
+            if msg.contains("answer on \(store.thisName.lowercased())") {
+                return ("clock", "The code expired", "Codes are valid for two minutes. Start again and confirm on both machines.", "Start over")
+            }
+            return ("clock", "\(who) didn't answer in time", "The code expired before anyone confirmed it on \(who). Start again on both machines.", "Start over")
+        case "CANCELLED_BY_PEER":
+            return ("xmark.circle", "Pairing was cancelled on \(who)", "Start again on both machines when you're ready.", "Start over")
+        case "BUSY":
+            return ("hourglass", "\(who) is busy pairing", "\(who) is pairing with another machine. Wait for it to finish, then try again.", "Try again")
         default:
             if msg.contains("pairing mode") || msg.contains("not pairing") || msg.contains("not accepting") {
                 return ("antenna.radiowaves.left.and.right.slash", "\(who) isn't in pairing mode",

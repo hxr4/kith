@@ -119,3 +119,9 @@ func RunService(run func(ctx context.Context) error) error { return run(context.
 func FirewallRuleExists() (bool, error) { return true, nil }
 
 func MDNSRuleExists() bool { return true }
+
+// AddFirewallRules is a no-op: only Windows needs inbound rules for Kith.
+func AddFirewallRules(exe string) error { return nil }
+
+// NetworkProfiles is Windows-only (Public/Private network categories).
+func NetworkProfiles() ([]string, error) { return nil, nil }

@@ -238,20 +238,59 @@ struct DeviceGlyph: View {
     }
 }
 
-/// The two-linked-nodes mark (app icon, notifications, menu bar).
+/// Kith's mark (branding/geometry.json): two offset half-rings, the two
+/// machines, passing a dot, the task, between them. Units are a 256 box.
+struct MarkGeometry {
+    var dx, dy, r, w, rd, s: CGFloat
+    static let main = MarkGeometry(dx: 34, dy: 20, r: 54, w: 36, rd: 20, s: 0.97)
+    /// Heavier cut for 24 pt and below, where the gaps would close.
+    static let small = MarkGeometry(dx: 40, dy: 16, r: 50, w: 44, rd: 21, s: 0.9)
+
+    /// The mark's bounds in its 256 box (it is symmetric about the centre).
+    var bounds: CGRect {
+        let x0 = 128 - (dx + r + w / 2) * s, y0 = 128 - (dy + r + w / 2) * s
+        return CGRect(x: x0, y: y0, width: 2 * (128 - x0), height: 2 * (128 - y0))
+    }
+
+    /// The halves and the dot fitted into `rect` (y down). `travel` slides the
+    /// dot from the left half's centre (-1) to the right half's (1); the
+    /// halves open toward each other, and the dot narrows by up to 30% on the
+    /// way through so it keeps clear of both.
+    func paths(in rect: CGRect, travel: CGFloat = 0) -> (halves: Path, dot: Path) {
+        let b = bounds
+        let k = min(rect.width / b.width, rect.height / b.height)
+        let o = CGPoint(x: rect.midX - 128 * k, y: rect.midY - 128 * k)
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: o.x + x * k, y: o.y + y * k) }
+        let band = StrokeStyle(lineWidth: w * s * k, lineCap: .round)
+        var halves = Path()
+        for side: CGFloat in [-1, 1] {
+            var arc = Path()
+            // Angles grow from +x toward +y (down): 90°→270° is the left half.
+            arc.addRelativeArc(center: pt(128 + side * dx * s, 128 + side * dy * s), radius: r * s * k,
+                               startAngle: .degrees(side < 0 ? 90 : 270), delta: .degrees(180))
+            halves.addPath(arc.strokedPath(band))
+        }
+        let squeeze = 1 - 0.3 * sin(.pi * min(1, abs(travel)))
+        let c = pt(128 + travel * dx * s, 128 + travel * dy * s), d = rd * s * k * squeeze
+        return (halves, Path(ellipseIn: CGRect(x: c.x - d, y: c.y - d, width: 2 * d, height: 2 * d)))
+    }
+}
+
+/// The Kith mark. `dot` defaults to the halves' colour.
 struct KithMark: View {
     var color: Color = .white
+    var dot: Color? = nil
     var width: CGFloat = 22
+
     var body: some View {
-        let d = width * 0.37
-        ZStack {
-            HStack(spacing: 0) {
-                Circle().strokeBorder(color, lineWidth: width * 0.07).frame(width: d, height: d)
-                Rectangle().fill(color).frame(height: width * 0.07)
-                Circle().strokeBorder(color, lineWidth: width * 0.07).frame(width: d, height: d)
-            }
+        let g: MarkGeometry = width <= 24 ? .small : .main
+        Canvas { ctx, size in
+            let m = g.paths(in: CGRect(origin: .zero, size: size))
+            ctx.fill(m.halves, with: .color(color))
+            ctx.fill(m.dot, with: .color(dot ?? color))
         }
-        .frame(width: width, height: d)
+        .frame(width: width, height: width * g.bounds.height / g.bounds.width)
+        .accessibilityHidden(true)
     }
 }
 

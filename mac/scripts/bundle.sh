@@ -39,7 +39,23 @@ done
 lipo -create $LIPO -output "$APP/Contents/Helpers/kith"
 rm -rf "$TMP"
 
-cp "$ROOT/gui/build/darwin/icons.icns" "$APP/Contents/Resources/AppIcon.icns"
+echo "==> app icon"
+# The Liquid Glass icon (AppIcon.icon, from Icon Composer) compiles to
+# Assets.car plus an .icns fallback; it needs actool from Xcode 26 or later.
+# Without it, the flat icon drawn by gui/build/icongen is used.
+ACTOOL_MAJOR=$(xcrun actool --version 2>/dev/null | sed -n '/short-bundle-version/{n;s/.*<string>\([0-9]*\).*/\1/p;}')
+if [ "${ACTOOL_MAJOR:-0}" -ge 26 ]; then
+	PARTIAL=$(mktemp)
+	xcrun actool "$MAC/AppIcon.icon" --compile "$APP/Contents/Resources" \
+		--output-format human-readable-text --errors --warnings \
+		--output-partial-info-plist "$PARTIAL" --app-icon AppIcon --include-all-app-icons \
+		--enable-on-demand-resources NO --development-region en \
+		--target-device mac --minimum-deployment-target 26.0 --platform macosx >/dev/null
+	rm -f "$PARTIAL"
+else
+	echo "actool 26+ not found; using the flat icon"
+	cp "$ROOT/gui/build/darwin/icons.icns" "$APP/Contents/Resources/AppIcon.icns"
+fi
 sed -e "s/@VERSION@/$VERSION/g" "$MAC/Info.plist" > "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 

@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"os"
 	"strings"
 	"time"
@@ -371,25 +370,21 @@ func (d *Daemon) pairIPC(ctx context.Context, s *ipc.Stream, ip string) (any, er
 	} else {
 		s.Send("waiting", map[string]string{"message": "waiting for the other machine (run `kith pair` there too)"})
 	}
-	// Client lines (confirmations) arrive on the same connection.
-	confirms := make(chan bool, 1)
+	// Client lines (confirmations) arrive on the same connection. A client
+	// that goes away cancels; only an explicit "no" counts as a mismatch.
+	confirms := make(chan confirmMsg, 1)
 	go func() {
+		defer close(confirms)
 		for {
 			var m struct {
-				Confirm *bool `json:"confirm"`
+				Confirm *bool  `json:"confirm"`
+				Code    string `json:"code"`
 			}
 			if err := s.Recv(&m); err != nil {
-				if err != io.EOF {
-					select {
-					case confirms <- false:
-					default:
-					}
-				}
-				close(confirms)
 				return
 			}
 			if m.Confirm != nil {
-				confirms <- *m.Confirm
+				confirms <- confirmMsg{ok: *m.Confirm, code: m.Code}
 			}
 		}
 	}()
@@ -399,19 +394,19 @@ func (d *Daemon) pairIPC(ctx context.Context, s *ipc.Stream, ip string) (any, er
 		select {
 		case ev := <-sess.events:
 			switch ev.Kind {
-			case "code":
-				s.Send("code", ev)
+			case "code", "peer-confirmed":
+				s.Send(ev.Kind, ev)
 			case "done":
 				return ev.Peer, nil
 			case "error":
 				return nil, ev.Err
 			}
-		case ok, more := <-confirms:
+		case m, more := <-confirms:
 			if !more {
-				return nil, protocol.Errf(protocol.CodeAuthFailed, "pairing aborted")
+				return nil, protocol.Errf(protocol.CodeCancelledByPeer, "pairing was cancelled")
 			}
 			select {
-			case sess.confirm <- ok:
+			case sess.confirm <- m:
 			default:
 			}
 		case <-window.C:

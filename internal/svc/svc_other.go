@@ -22,3 +22,9 @@ func Start(home string) error    { return errUnsupported }
 func Stop(home string) error     { return errUnsupported }
 
 func MDNSRuleExists() bool { return true }
+
+// AddFirewallRules is a no-op: only Windows needs inbound rules for Kith.
+func AddFirewallRules(exe string) error { return nil }
+
+// NetworkProfiles is Windows-only (Public/Private network categories).
+func NetworkProfiles() ([]string, error) { return nil, nil }

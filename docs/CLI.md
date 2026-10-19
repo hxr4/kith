@@ -84,7 +84,8 @@ Ctrl-C while following stops following only; the task keeps running.
 | `kith daemon` | run in the foreground |
 | `kith daemon start\|stop\|restart` | background control (uses the service if installed for this home) |
 | `kith daemon logs [-f] [-n N]` | daemon log (background/service mode) |
-| `kith daemon install\|uninstall\|status` | LaunchAgent / Windows service |
+| `kith daemon install\|uninstall\|status` | LaunchAgent / Windows service / systemd user unit |
+| `kith daemon firewall` | Windows, elevated: add the inbound Private-profile rules for TCP 7420 and mDNS UDP 5353 |
 | `kith config list\|get\|set\|unset\|path` | `kith.toml` settings: `name port default_policy log_level bind mdns` |
 | `kith id` · `kith probe` · `kith doctor` | identity, capability manifest, diagnostics |
 | `kith mcp` | MCP server on stdio for AI agents |
