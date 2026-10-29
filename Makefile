@@ -1,5 +1,5 @@
 # Kith developer shortcuts. Plain `go` commands work too.
-.PHONY: build install uninstall test test-race vet dist clean mac-app mac-dmg mac-test
+.PHONY: build install uninstall test test-race vet dist clean mac-app mac-dmg mac-test integrations
 
 build:
 	CGO_ENABLED=0 go build -trimpath -o dist/kith ./cmd/kith
@@ -38,3 +38,8 @@ mac-test:
 
 clean:
 	rm -rf dist mac/build
+
+# Agent plugin bundles (Claude Code marketplace, Antigravity plugin, bare skill)
+# from internal/agents; `go test ./internal/agents` checks they are current.
+integrations:
+	go run ./cmd/kith agents export integrations

@@ -176,15 +176,28 @@ kith mcp                                 MCP server on stdio, for AI agents
 `--home` overrides `$KITH_HOME` (default `~/.kith`); `--json` gives
 machine-readable output.
 
-## For AI agents (MCP)
+## For AI agents
 
-`kith mcp` exposes exactly six tools: `list_peers`, `submit_task`, `get_task`,
-`stream_logs`, `fetch_artifact` and `cancel_task`. Pairing is human-only.
-Example client configuration:
+Tell an agent "I have a Kith-connected computer". It can then run jobs on
+the other machine and follow them epoch by epoch. One command connects
+Claude Code, Codex, Antigravity, Cursor and Gemini CLI:
 
-```json
-{ "mcpServers": { "kith": { "command": "kith", "args": ["mcp"] } } }
+```bash
+kith agents install     # MCP server + the Kith skill, in each agent's own config
+kith agents             # what's connected
 ```
+
+`kith mcp` serves these tools:
+- `list_peers`, `check_task` (preflight), `submit_task` and `list_tasks`
+- `task_progress` and `wait_task`, which report live metrics (epochs,
+  accuracy, F1, loss) parsed from `KITH_METRIC {...}` lines or from plain
+  `epoch 3/20 loss=0.4` output
+- `get_task`, `stream_logs`, `fetch_artifact` and `cancel_task`
+
+Pairing stays human-only. For other MCP clients, `kith agents print`
+gives the entry. See [integrations/](integrations/) for plugin bundles and
+details, and [examples/cifar-bench](examples/cifar-bench) for a GPU
+benchmark sized for a 6 GB card.
 
 ## Configuration — `$KITH_HOME/kith.toml`
 

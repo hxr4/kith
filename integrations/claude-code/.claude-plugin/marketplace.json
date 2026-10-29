@@ -1,0 +1,13 @@
+{
+  "name": "kith",
+  "owner": {
+    "name": "Kith"
+  },
+  "plugins": [
+    {
+      "description": "Run commands and GPU training on your other Kith-paired computer and follow live progress (epochs, accuracy, F1) from any agent.",
+      "name": "kith",
+      "source": "./kith"
+    }
+  ]
+}

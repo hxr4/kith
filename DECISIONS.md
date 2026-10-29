@@ -407,3 +407,38 @@ out the two-minute code. In the daemon:
   expired code counts toward the rate limit.
 
 Clients now classify errors by code, not by message text.
+
+**D-058 Agents follow progress, not logs, and one skill serves every
+agent.** MCP gains three tools:
+- `check_task`: a preflight against the peer's manifest.
+- `task_progress`: state plus parsed metrics. The latest and best values
+  per epoch (best is higher for accuracy and F1, lower for loss), the
+  current step and a short output tail.
+- `wait_task`: blocks until the next epoch (`until=epoch`), any change or
+  the finish, 50 s by default and 600 s at most. Most clients time tools
+  out near 60 s.
+
+How progress is read:
+- **The metrics contract:** a `KITH_METRIC {json}` line per epoch (kinds
+  `epoch`, `step`, `start`, `done`). Plain `epoch N/M key=value` lines are
+  parsed as a fallback.
+- **Incremental reads:** the log is read incrementally and cached per
+  task in the MCP process, so polling stays cheap.
+- **Optional peer:** `peer` is optional when one machine is paired, or
+  only one is online (`daemon.PickPeer`, shared with the CLI).
+- **Server instructions:** the server sends MCP instructions, so an agent
+  with only the server still knows the workflow.
+
+The skill (`internal/agents/SKILL.md`, the Agent Skills format) is
+embedded in the binary. `kith agents install` writes it, plus the MCP
+entry with an absolute path to `kith`, into each agent's documented
+locations:
+- **Claude Code:** via `claude mcp add`.
+- **Codex:** one marked block in `config.toml`, with
+  `tool_timeout_sec = 660`.
+- **Antigravity:** `~/.gemini/config`.
+- **Cursor and Gemini CLI:** their JSON files.
+
+JSON is merged with a backup, and uninstall removes exactly what was
+added. `integrations/` holds generated plugin bundles; a test keeps them
+in sync with the embedded skill.

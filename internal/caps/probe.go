@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"kith/internal/config"
@@ -159,12 +160,33 @@ func parseMiB(s string) (float64, error) {
 	return strconv.ParseFloat(s, 64)
 }
 
+// ProbeTimeout bounds a task's env.probe. A first `import torch` with CUDA
+// on Windows (antivirus scanning the DLLs, a sleeping laptop GPU) can take
+// over a minute.
+const ProbeTimeout = 180 * time.Second
+
+// probeOKFor is how long a passing probe is remembered, so a run of tasks
+// with the same probe pays its cost once.
+const probeOKFor = 30 * time.Minute
+
+var (
+	probeMu sync.Mutex
+	probeOK = map[string]time.Time{}
+)
+
 // RunProbe runs a task's probe argv in a scratch directory. Never a shell.
 func RunProbe(ctx context.Context, argv []string, scratch string) *protocol.Error {
 	if len(argv) == 0 {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	key := strings.Join(argv, "\x00")
+	probeMu.Lock()
+	ok := time.Since(probeOK[key]) < probeOKFor
+	probeMu.Unlock()
+	if ok {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, ProbeTimeout)
 	defer cancel()
 	path, err := exec.LookPath(argv[0])
 	if err != nil {
@@ -184,12 +206,15 @@ func RunProbe(ctx context.Context, argv []string, scratch string) *protocol.Erro
 			tail = "..." + tail[len(tail)-400:]
 		}
 		if ctx.Err() != nil {
-			return protocol.Errf(protocol.CodeNoMatch, "probe %q timed out after 60s.", strings.Join(argv, " ")).
-				WithFix("make env.probe finish quickly on the executor")
+			return protocol.Errf(protocol.CodeNoMatch, "probe %q (%s) timed out after %s.", strings.Join(argv, " "), path, ProbeTimeout).
+				WithFix("run it by hand on the executor; if it is just slow (a first torch/CUDA import), drop env.probe and let the task itself fail fast, e.g. pass --device cuda")
 		}
 		return protocol.Errf(protocol.CodeNoMatch, "probe %q failed: %v. Output: %s", strings.Join(argv, " "), err, tail).
 			WithFix("run the probe on the executor by hand and fix its environment")
 	}
+	probeMu.Lock()
+	probeOK[key] = time.Now()
+	probeMu.Unlock()
 	return nil
 }
 

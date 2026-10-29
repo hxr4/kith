@@ -104,7 +104,7 @@ func (a *app) root() *cobra.Command {
 		a.cancelCmd(), a.approveCmd(true), a.approveCmd(false), a.artifactsCmd(), a.fetchCmd())...)
 	root.AddCommand(group("peers", a.pairCmd(), a.peersCmd(), a.unpairCmd())...)
 	root.AddCommand(group("daemon", a.statusCmd(), a.daemonCmd(), a.configCmd(), a.idCmd(), a.probeCmd(), a.doctorCmd(),
-		a.mcpCmd(), a.versionCmd())...)
+		a.mcpCmd(), a.agentsCmd(), a.versionCmd())...)
 	return root
 }
 

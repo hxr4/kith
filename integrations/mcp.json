@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "kith": {
+      "args": [
+        "mcp"
+      ],
+      "command": "kith"
+    }
+  }
+}

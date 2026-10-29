@@ -40,6 +40,7 @@ func NewManager() *Manager { return &Manager{active: map[*peer.Conn]*pull{}} }
 
 type pull struct {
 	taskID   string
+	path     string
 	sha      [32]byte
 	size     int64
 	f        *os.File
@@ -126,7 +127,7 @@ func (m *Manager) Fetch(ctx context.Context, c *peer.Conn, taskID string, f prot
 	if _, err := fh.Seek(off, io.SeekStart); err != nil {
 		return err
 	}
-	p := &pull{taskID: taskID, sha: sha, size: f.Size, f: fh, off: off, h: h, zstd: c.Zstd, progress: progress,
+	p := &pull{taskID: taskID, path: f.Path, sha: sha, size: f.Size, f: fh, off: off, h: h, zstd: c.Zstd, progress: progress,
 		lastRep: off, done: make(chan error, 1)}
 	if off < f.Size {
 		m.mu.Lock()
@@ -166,7 +167,8 @@ func (m *Manager) Fetch(ctx context.Context, c *peer.Conn, taskID string, f prot
 		closed = true
 		os.Remove(part)
 		c.Send(protocol.MsgFileDone, protocol.FileDone{TaskID: taskID, SHA256: f.SHA256, OK: false})
-		return protocol.Errf(protocol.CodeTransferError, "hash mismatch for %s: want %s got %s", f.Path, f.SHA256[:12], got[:12])
+		return protocol.Errf(protocol.CodeTransferError, "hash mismatch for %s: want %s got %s (did it change after the task was submitted?)", f.Path, f.SHA256[:12], got[:12]).
+			WithFix("don't edit input files until the transfer finishes; resubmit the task")
 	}
 	if err := fh.Sync(); err != nil {
 		return err
@@ -207,7 +209,8 @@ func (m *Manager) OnChunk(c *peer.Conn, ch protocol.FileChunk) {
 		data = d
 	}
 	if p.off+int64(len(data)) > p.size {
-		fail(protocol.Errf(protocol.CodeTransferError, "peer sent more bytes than offered"))
+		fail(protocol.Errf(protocol.CodeTransferError, "%s is larger than when the task was submitted (%d bytes offered); it changed on the sending machine", p.path, p.size).
+			WithFix("don't edit input files until the transfer finishes; resubmit the task"))
 		return
 	}
 	if _, err := p.f.Write(data); err != nil {

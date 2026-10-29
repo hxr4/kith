@@ -4,3 +4,5 @@ examples/mnist/dataset.zip
 examples/mnist/out/
 mac/.build/
 mac/build/
+examples/cifar-bench/cifar-10-python.tar.gz
+examples/cifar-bench/out/

@@ -1,0 +1,30 @@
+# Kith GPU benchmark: ResNet-18 on CIFAR-10, Mac → Windows (RTX 3050 6 GB).
+# First, on the Mac:  python3 fetch_cifar.py
+# Then:               kith submit -f task.toml      (or ask your agent)
+# The executor needs CUDA torch and numpy only; no torchvision.
+# ~3.5 GB of VRAM at batch 256. 20 epochs take ~10 min on a 3050 on mains power at
+# full clocks, and over an hour when the laptop throttles (battery, power saver, heat).
+[task]
+project = "cifar-bench"
+name = "resnet18-cifar10"
+# --device cuda fails fast on a machine without CUDA torch (cheaper than an
+# env.probe, which must import torch before the task is even accepted).
+command = ["python", "-u", "train.py", "--epochs", "20", "--device", "cuda", "--out", "out/"]
+
+[task.inputs]
+files = ["train.py", "cifar-10-python.tar.gz"]
+
+[task.env]
+python = ">=3.10"
+packages = { torch = ">=2.3", numpy = ">=1.24" }
+gpu = { vram_gb = 4, required = true }
+
+[task.outputs]
+include = ["out/model.pt", "out/metrics.json", "out/benchmark.json", "out/confusion.csv"]
+copy_back = true
+retain_cap_gb = 2
+
+[task.policy]
+on_interrupt = "resume-if-checkpoint"
+checkpoint = { pattern = "out/checkpoint.pt" }
+timeout_minutes = 240   # a hot, throttled laptop GPU can be 10x slower than its best

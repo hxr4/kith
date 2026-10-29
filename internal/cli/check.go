@@ -116,34 +116,8 @@ func (a *app) checkCmd() *cobra.Command {
 	return c
 }
 
-// pickPeer matches a name or fingerprint prefix; empty means the only peer.
-func pickPeer(peers []daemon.PeerView, ref string) (daemon.PeerView, error) {
-	if ref == "" {
-		if len(peers) == 1 {
-			return peers[0], nil
-		}
-		if len(peers) == 0 {
-			return daemon.PeerView{}, fmt.Errorf("no paired peers; pair a machine first")
-		}
-		return daemon.PeerView{}, fmt.Errorf("%d peers are paired; choose one with --peer", len(peers))
-	}
-	norm := func(s string) string {
-		return strings.ToLower(strings.NewReplacer("-", "", "KITH", "", "kith", "").Replace(s))
-	}
-	var hits []daemon.PeerView
-	for _, p := range peers {
-		if strings.EqualFold(p.Name, ref) || strings.HasPrefix(p.FP, norm(ref)) || strings.HasPrefix(norm(p.Display), norm(ref)) {
-			hits = append(hits, p)
-		}
-	}
-	if len(hits) == 1 {
-		return hits[0], nil
-	}
-	if len(hits) == 0 {
-		return daemon.PeerView{}, fmt.Errorf("no paired peer matches %q", ref)
-	}
-	return daemon.PeerView{}, fmt.Errorf("%q matches %d peers; use the fingerprint", ref, len(hits))
-}
+// pickPeer: see daemon.PickPeer.
+var pickPeer = daemon.PickPeer
 
 func (a *app) printCheck(r CheckResult) {
 	fmt.Fprintf(a.out, "%s  %s  (%d inputs, %s)\n", a.p.bold(r.Name), strings.Join(r.Command, " "), len(r.Inputs), humanBytes(r.InputBytes))

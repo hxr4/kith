@@ -116,7 +116,7 @@ func TestSixToolsOverMCP(t *testing.T) {
 	}
 	defer s.Close()
 
-	// Exactly six tools.
+	// The advertised tool set.
 	lt, err := s.ListTools(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -220,6 +220,52 @@ open("out/model.pt", "wb").write(b"weights" * 1000)
 	sha, _, _ := transfer.SHAFile(fa["local_path"].(string))
 	if sha != fa["sha256"] || fa["local_path"] != filepath.Join(proj, "out", "model.pt") {
 		t.Fatalf("%+v", fa)
+	}
+
+	// A training-style task, followed the way an agent does: check_task,
+	// submit_task without a peer, wait_task per epoch, task_progress.
+	os.WriteFile(filepath.Join(proj, "fit.py"), []byte(`import json, time
+for e in range(1, 4):
+    time.sleep(0.4)
+    print("KITH_METRIC " + json.dumps({"kind": "epoch", "epoch": e, "epochs": 3, "val_acc": 0.5 + e / 10, "macro_f1": 0.4 + e / 10}), flush=True)
+print("trained", flush=True)
+`), 0o644)
+	fit := map[string]any{"command": []string{py, "fit.py"}, "inputs": map[string]any{"files": []string{"fit.py"}}}
+	ck, isErr := callTool(t, s, "check_task", map[string]any{"spec": fit, "project_dir": proj})
+	if isErr || ck["ok"] != true || ck["peer_name"] != "win" {
+		t.Fatalf("check_task %+v", ck)
+	}
+	sub3, isErr := callTool(t, s, "submit_task", map[string]any{"spec": fit, "project_dir": proj})
+	if isErr || sub3["peer_name"] != "win" {
+		t.Fatalf("submit without a peer: %+v", sub3)
+	}
+	id3 := sub3["task_id"].(string)
+	var epochsSeen []float64
+	for i := 0; i < 20; i++ {
+		w, isErr := callTool(t, s, "wait_task", map[string]any{"task_id": id3, "until": "epoch", "timeout_s": 10})
+		if isErr {
+			t.Fatalf("%+v", w)
+		}
+		if l, ok := w["latest"].(map[string]any); ok && (len(epochsSeen) == 0 || l["epoch"].(float64) != epochsSeen[len(epochsSeen)-1]) {
+			epochsSeen = append(epochsSeen, l["epoch"].(float64))
+		}
+		if w["complete"] == true {
+			break
+		}
+	}
+	if len(epochsSeen) < 2 || epochsSeen[len(epochsSeen)-1] != 3 {
+		t.Fatalf("wait_task until=epoch should report epochs as they happen: %v", epochsSeen)
+	}
+	lt3, _ := callTool(t, s, "list_tasks", map[string]any{"limit": 3})
+	if first := lt3["tasks"].([]any)[0].(map[string]any); first["task_id"] != id3 || first["direction"] != "out" || first["peer_name"] != "win" {
+		t.Fatalf("list_tasks %+v", lt3)
+	}
+	pr, _ := callTool(t, s, "task_progress", map[string]any{"task_id": id3, "full_history": true})
+	if pr["state"] != "COMPLETED" || pr["complete"] != true || len(pr["history"].([]any)) != 3 {
+		t.Fatalf("task_progress %+v", pr)
+	}
+	if b := pr["best"].(map[string]any)["macro_f1"].(map[string]any); b["epoch"] != 3.0 {
+		t.Fatalf("best %+v", b)
 	}
 
 	// cancel_task on a long task: ack + final state.

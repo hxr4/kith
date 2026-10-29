@@ -1,0 +1,11 @@
+{
+  "description": "Run commands and GPU training on your other Kith-paired computer and follow live progress (epochs, accuracy, F1) from any agent.",
+  "keywords": [
+    "gpu",
+    "remote",
+    "training",
+    "mcp"
+  ],
+  "name": "kith",
+  "version": "1.0.0"
+}
